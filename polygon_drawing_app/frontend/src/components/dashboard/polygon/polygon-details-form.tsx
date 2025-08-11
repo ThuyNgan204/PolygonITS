@@ -1,0 +1,425 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import Button from '@mui/material/Button';
+import Card from '@mui/material/Card';
+import CardActions from '@mui/material/CardActions';
+import CardContent from '@mui/material/CardContent';
+import CardHeader from '@mui/material/CardHeader';
+import Divider from '@mui/material/Divider';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
+import Typography from '@mui/material/Typography';
+import Grid from '@mui/material/Unstable_Grid2';
+import { Image, Layer, Line, Stage, Rect } from 'react-konva';
+
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  IconButton
+} from '@mui/material';
+import { XSquare } from '@phosphor-icons/react/dist/ssr/XSquare';
+
+const zoneColor_of_polygon = 'rgba(0, 0, 255, 0.05)';
+
+const zoneColors = {
+  0: 'rgba(0, 255, 255, 0.2)', // Cyan
+  1: 'rgba(255, 0, 0, 0.2)', // Red (50% opacity)
+  2: 'rgba(0, 0, 255, 0.2)', // Blue
+  3: 'rgba(0, 255, 0, 0.2)', // Green
+  4: 'rgba(255, 165, 0, 0.2)', // Orange
+  5: 'rgba(128, 0, 128, 0.2)', // Purple
+  6: 'rgba(255, 192, 203, 0.2)', // Pink
+  7: 'rgba(75, 0, 130, 0.2)', // Indigo
+  8: 'rgba(128, 128, 128, 0.2)', // Gray
+  9: 'rgba(255, 255, 0, 0.2)' // Yellow
+};
+
+function isPointInPolygon(point: [number, number], polygon: number[]) {
+  const [x, y] = point;
+  let inside = false;
+
+  for (let i = 0, j = polygon.length / 2 - 1; i < polygon.length / 2; j = i++) {
+    const xi = polygon[i * 2],
+      yi = polygon[i * 2 + 1];
+    const xj = polygon[j * 2],
+      yj = polygon[j * 2 + 1];
+
+    const intersect =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+}
+
+export function PolygonDetailsForm(): React.JSX.Element {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [polygons, setPolygons] = useState([]); // Store multiple polygons
+  const [currentPoints, setCurrentPoints] = useState([]);
+  const [mousePosition, setMousePosition] = useState(null); // để lưu vị trí chuột hiện tại
+  const [selectedCameraSN, setSelectedCameraSN] = useState('');
+  const [cameras, setCameras] = useState([]);
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedCameraSN) {
+      setImage(null);
+      setPolygons([]); // Clear polygons when no camera selected
+      return;
+    }
+
+    let isMounted = true;
+
+    async function fetchCameraData() {
+      try {
+        // Fetch latest frame image
+        const response = await fetch(
+          `http://localhost:5101/api/v1/tracking/latest-frame/${selectedCameraSN}`
+        );
+        if (!response.ok) throw new Error('Failed to fetch latest frame');
+        const blob = await response.blob();
+
+        const img = new window.Image();
+        img.onload = () => {
+          if (isMounted) setImage(img);
+          URL.revokeObjectURL(img.src);
+        };
+        img.src = URL.createObjectURL(blob);
+
+        // Fetch polygons for this camera
+        const polyResp = await fetch(
+          `http://localhost:5101/api/v1/camera/${selectedCameraSN}`
+        );
+        if (!polyResp.ok) throw new Error('Failed to fetch polygons');
+        const polyData = await polyResp.json();
+        if (isMounted) setPolygons(polyData.points || []); // Adjust field depending on your backend response structure
+      } catch (error) {
+        console.error(error);
+        if (isMounted) {
+          setImage(null);
+          setPolygons([]);
+        }
+      }
+    }
+
+    fetchCameraData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedCameraSN]);
+
+  const fetchData = async () => {
+    try {
+      const response = await fetch('http://localhost:5101/api/v1/camera');
+      const data = await response.json();
+      setCameras(data);
+    } catch (error) {}
+  };
+
+  const handleClick = (event) => {
+    const { x, y } = event.target.getStage().getPointerPosition();
+    const roundedX = Math.round(x);
+    const roundedY = Math.round(y);
+    setCurrentPoints([...currentPoints, roundedX, roundedY]);
+  };
+
+  const handleMouseMove = (event) => {
+    const stage = event.target.getStage();
+    const pos = stage.getPointerPosition();
+    setMousePosition(pos);
+  };
+
+  const handleComplete = () => {
+    if (currentPoints.length > 2) {
+      setPolygons([...polygons, currentPoints]); // Save completed polygon
+      setCurrentPoints([]); // Reset for new polygon
+    }
+  };
+
+  const handleUpdate = async () => {
+    const url = `http://localhost:5101/api/v1/camera/${selectedCameraSN}`;
+
+    const points = {
+      points: polygons
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(points)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Update failed: ${response.status}`);
+      }
+
+      await response.json();
+      fetchData();
+    } catch (error) {
+      console.error('Error updating camera:', error);
+    }
+  };
+
+  const handleDeviceChange = (e: React.ChangeEvent<{ value: unknown }>) => {
+    setSelectedCameraSN(e.target.value?.toString());
+  };
+
+  const handleDelete = (index: number) => {
+    setPolygons(polygons.filter((_, i) => i !== index));
+  };
+
+  return (
+    // <form
+    //   onSubmit={(event) => {
+    //     event.preventDefault();
+    //   }}
+    // >
+    <Card>
+      <CardHeader title='Polygon' />
+      <Divider />
+
+      <CardContent>
+        <Grid container md={6} xs={12}>
+          <FormControl fullWidth>
+            <InputLabel>Thiết bị</InputLabel>
+            <Select
+              value={selectedCameraSN}
+              onChange={handleDeviceChange}
+              label='Thiết bị'
+              variant='outlined'
+            >
+              {cameras.map((option) => (
+                <MenuItem key={option.name} value={option.serial_number}>
+                  {option.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+
+        <Grid>
+          <Typography title='Zone'></Typography>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row', // Arrange in a row
+              gap: '10px' // Space between items
+            }}
+          >
+            {Object.entries(zoneColors).map(([zone, color]) => (
+              <div
+                key={zone}
+                style={{
+                  backgroundColor: color,
+                  padding: '10px',
+                  margin: '5px',
+                  width: '120px',
+                  textAlign: 'center',
+                  borderRadius: '5px'
+                }}
+              >
+                {`Zone${zone}`}
+              </div>
+            ))}
+          </div>
+        </Grid>
+        <Grid container spacing={3}>
+          <Grid md={6} xs={12}>
+            <Stage
+              width={1200}
+              height={800}
+              onClick={handleClick}
+              onMouseMove={handleMouseMove}
+            >
+              <Layer>
+                {image && (
+                  <Image image={image} x={0} y={0} width={1200} height={800} />
+                )}
+
+                {/* Render multiple polygons */}
+                {polygons.map((points, index) => {
+                  const step = 20;
+
+                  const xs = points.filter((_, i) => i % 2 === 0);
+                  const ys = points.filter((_, i) => i % 2 === 1);
+                  const minX = Math.min(...xs);
+                  const maxX = Math.max(...xs);
+                  const minY = Math.min(...ys);
+                  const maxY = Math.max(...ys);
+
+                  // đường thẳng dọc
+                  const verticalLines = [];
+                  for (let x = minX; x <= maxX; x += step) {
+                    // chia đoạn thẳng dọc từ minY đến maxY thành các đoạn nhỏ để kiểm tra nằm trong polygon
+                    const segments = [];
+                    let segmentStart = null;
+                    for (let y = minY; y <= maxY; y++) {
+                      if (isPointInPolygon([x, y], points)) {
+                        if (segmentStart === null) segmentStart = y;
+                      } else {
+                        if (segmentStart !== null) {
+                          segments.push([segmentStart, y - 1]);
+                          segmentStart = null;
+                        }
+                      }
+                    }
+                    if (segmentStart !== null)
+                      segments.push([segmentStart, maxY]);
+
+                    segments.forEach(([startY, endY], i) => {
+                      verticalLines.push(
+                        <Line
+                          key={`vline-${index}-${x}-${i}`}
+                          points={[x, startY, x, endY]}
+                          stroke='white'
+                          strokeWidth={0.5}
+                          opacity={0.3}
+                        />
+                      );
+                    });
+                  }
+
+                  // đường thẳng ngang
+                  const horizontalLines = [];
+                  for (let y = minY; y <= maxY; y += step) {
+                    const segments = [];
+                    let segmentStart = null;
+                    for (let x = minX; x <= maxX; x++) {
+                      if (isPointInPolygon([x, y], points)) {
+                        if (segmentStart === null) segmentStart = x;
+                      } else {
+                        if (segmentStart !== null) {
+                          segments.push([segmentStart, x - 1]);
+                          segmentStart = null;
+                        }
+                      }
+                    }
+                    if (segmentStart !== null)
+                      segments.push([segmentStart, maxX]);
+
+                    segments.forEach(([startX, endX], i) => {
+                      horizontalLines.push(
+                        <Line
+                          key={`hline-${index}-${y}-${i}`}
+                          points={[startX, y, endX, y]}
+                          stroke='white'
+                          strokeWidth={0.5}
+                          opacity={0.3}
+                        />
+                      );
+                    });
+                  }
+
+                  return (
+                    <React.Fragment key={index}>
+                      <Line
+                        points={points}
+                        stroke='blue'
+                        strokeWidth={2}
+                        closed
+                        fill={zoneColor_of_polygon}
+                      />
+                      {verticalLines}
+                      {horizontalLines}
+                    </React.Fragment>
+                  );
+                })}
+                {/* Draw current polygon-in-progress */}
+                <Line
+                  points={
+                    mousePosition
+                      ? [...currentPoints, mousePosition.x, mousePosition.y]
+                      : currentPoints
+                  }
+                  stroke='red'
+                  strokeWidth={2}
+                />
+              </Layer>
+            </Stage>
+          </Grid>
+        </Grid>
+      </CardContent>
+      <Divider />
+      <CardContent>
+        <Typography gutterBottom sx={{ color: 'text.secondary', fontSize: 14 }}>
+          Kết quả
+        </Typography>
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>
+                  <strong>Zone</strong>
+                </TableCell>
+                <TableCell>
+                  <strong>Points</strong>
+                </TableCell>
+                <TableCell>
+                  <strong>Actions</strong>
+                </TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {polygons.map((polygon, index) => (
+                <TableRow key={index}>
+                  <TableCell
+                    style={{ backgroundColor: zoneColor_of_polygon }}
+                  >{`Zone${index}`}</TableCell>
+                  <TableCell>{polygon?.join(', ')}</TableCell>
+                  <TableCell>
+                    <IconButton
+                      onClick={() => handleDelete(index)}
+                      color='error'
+                    >
+                      <XSquare />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </CardContent>
+
+      <Divider />
+      <CardActions sx={{ justifyContent: 'space-between' }}>
+        <Button variant='contained' color='secondary' onClick={handleComplete}>
+          Xác nhận
+        </Button>
+
+        <Button variant='contained' color='success' onClick={handleUpdate}>
+          Lưu
+        </Button>
+
+        <Button
+          style={{ display: 'none' }}
+          variant='contained'
+          color='error'
+          onClick={() => {
+            setPolygons([]);
+            setCurrentPoints([]);
+          }}
+        >
+          Xóa
+        </Button>
+      </CardActions>
+    </Card>
+    // </form>
+  );
+}
