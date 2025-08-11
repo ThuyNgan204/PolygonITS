@@ -13,7 +13,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Unstable_Grid2';
-import { Image, Layer, Line, Stage, Rect } from 'react-konva';
+import { Image, Layer, Line, Stage } from 'react-konva';
 
 import {
   Table,
@@ -23,24 +23,12 @@ import {
   TableHead,
   TableRow,
   Paper,
-  IconButton
+  IconButton,
+  TextField // ✅ Added
 } from '@mui/material';
 import { XSquare } from '@phosphor-icons/react/dist/ssr/XSquare';
 
 const zoneColor_of_polygon = 'rgba(0, 0, 255, 0.05)';
-
-const zoneColors = {
-  0: 'rgba(0, 255, 255, 0.2)', // Cyan
-  1: 'rgba(255, 0, 0, 0.2)', // Red (50% opacity)
-  2: 'rgba(0, 0, 255, 0.2)', // Blue
-  3: 'rgba(0, 255, 0, 0.2)', // Green
-  4: 'rgba(255, 165, 0, 0.2)', // Orange
-  5: 'rgba(128, 0, 128, 0.2)', // Purple
-  6: 'rgba(255, 192, 203, 0.2)', // Pink
-  7: 'rgba(75, 0, 130, 0.2)', // Indigo
-  8: 'rgba(128, 128, 128, 0.2)', // Gray
-  9: 'rgba(255, 255, 0, 0.2)' // Yellow
-};
 
 function isPointInPolygon(point: [number, number], polygon: number[]) {
   const [x, y] = point;
@@ -63,11 +51,16 @@ function isPointInPolygon(point: [number, number], polygon: number[]) {
 
 export function PolygonDetailsForm(): React.JSX.Element {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [polygons, setPolygons] = useState([]); // Store multiple polygons
+  const [polygons, setPolygons] = useState([]);
   const [currentPoints, setCurrentPoints] = useState([]);
-  const [mousePosition, setMousePosition] = useState(null); // để lưu vị trí chuột hiện tại
+  const [mousePosition, setMousePosition] = useState(null);
   const [selectedCameraSN, setSelectedCameraSN] = useState('');
   const [cameras, setCameras] = useState([]);
+
+  // ✅ Added state for editable zone names
+  const [zoneNames, setZoneNames] = useState<string[]>([]);
+  const [editIndex, setEditIndex] = useState<number | null>(null);
+  const [tempName, setTempName] = useState<string>('');
 
   useEffect(() => {
     fetchData();
@@ -76,7 +69,7 @@ export function PolygonDetailsForm(): React.JSX.Element {
   useEffect(() => {
     if (!selectedCameraSN) {
       setImage(null);
-      setPolygons([]); // Clear polygons when no camera selected
+      setPolygons([]);
       return;
     }
 
@@ -84,7 +77,6 @@ export function PolygonDetailsForm(): React.JSX.Element {
 
     async function fetchCameraData() {
       try {
-        // Fetch latest frame image
         const response = await fetch(
           `http://localhost:5101/api/v1/tracking/latest-frame/${selectedCameraSN}`
         );
@@ -98,13 +90,17 @@ export function PolygonDetailsForm(): React.JSX.Element {
         };
         img.src = URL.createObjectURL(blob);
 
-        // Fetch polygons for this camera
         const polyResp = await fetch(
           `http://localhost:5101/api/v1/camera/${selectedCameraSN}`
         );
         if (!polyResp.ok) throw new Error('Failed to fetch polygons');
         const polyData = await polyResp.json();
-        if (isMounted) setPolygons(polyData.points || []); // Adjust field depending on your backend response structure
+        if (isMounted) {
+          setPolygons(polyData.points || []);
+          setZoneNames(
+            (polyData.points || []).map((_: any, i: number) => `Zone${i}`)
+          ); // ✅ Added
+        }
       } catch (error) {
         console.error(error);
         if (isMounted) {
@@ -144,8 +140,10 @@ export function PolygonDetailsForm(): React.JSX.Element {
 
   const handleComplete = () => {
     if (currentPoints.length > 2) {
-      setPolygons([...polygons, currentPoints]); // Save completed polygon
-      setCurrentPoints([]); // Reset for new polygon
+      const newPolygons = [...polygons, currentPoints];
+      setPolygons(newPolygons);
+      setZoneNames([...zoneNames, `Zone${newPolygons.length - 1}`]); // ✅ Added
+      setCurrentPoints([]);
     }
   };
 
@@ -153,6 +151,7 @@ export function PolygonDetailsForm(): React.JSX.Element {
     const url = `http://localhost:5101/api/v1/camera/${selectedCameraSN}`;
 
     const points = {
+      //
       points: polygons
     };
 
@@ -182,14 +181,35 @@ export function PolygonDetailsForm(): React.JSX.Element {
 
   const handleDelete = (index: number) => {
     setPolygons(polygons.filter((_, i) => i !== index));
+    setZoneNames(zoneNames.filter((_, i) => i !== index)); // ✅ Added
+  };
+
+  // ✅ Added editable functions
+  const handleNameClick = (index: number) => {
+    setEditIndex(index);
+    setTempName(zoneNames[index]);
+  };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setTempName(e.target.value);
+  };
+
+  const handleNameSave = () => {
+    if (editIndex !== null) {
+      const updated = [...zoneNames];
+      updated[editIndex] = tempName.trim() || updated[editIndex];
+      setZoneNames(updated);
+      setEditIndex(null);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleNameSave();
+    }
   };
 
   return (
-    // <form
-    //   onSubmit={(event) => {
-    //     event.preventDefault();
-    //   }}
-    // >
     <Card>
       <CardHeader title='Polygon' />
       <Divider />
@@ -213,35 +233,10 @@ export function PolygonDetailsForm(): React.JSX.Element {
           </FormControl>
         </Grid>
 
-        <Grid>
-          <Typography title='Zone'></Typography>
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row', // Arrange in a row
-              gap: '10px' // Space between items
-            }}
-          >
-            {Object.entries(zoneColors).map(([zone, color]) => (
-              <div
-                key={zone}
-                style={{
-                  backgroundColor: color,
-                  padding: '10px',
-                  margin: '5px',
-                  width: '120px',
-                  textAlign: 'center',
-                  borderRadius: '5px'
-                }}
-              >
-                {`Zone${zone}`}
-              </div>
-            ))}
-          </div>
-        </Grid>
         <Grid container spacing={3}>
           <Grid md={6} xs={12}>
             <Stage
+              //padding-top={10}
               width={1200}
               height={800}
               onClick={handleClick}
@@ -252,7 +247,6 @@ export function PolygonDetailsForm(): React.JSX.Element {
                   <Image image={image} x={0} y={0} width={1200} height={800} />
                 )}
 
-                {/* Render multiple polygons */}
                 {polygons.map((points, index) => {
                   const step = 20;
 
@@ -263,10 +257,8 @@ export function PolygonDetailsForm(): React.JSX.Element {
                   const minY = Math.min(...ys);
                   const maxY = Math.max(...ys);
 
-                  // đường thẳng dọc
                   const verticalLines = [];
                   for (let x = minX; x <= maxX; x += step) {
-                    // chia đoạn thẳng dọc từ minY đến maxY thành các đoạn nhỏ để kiểm tra nằm trong polygon
                     const segments = [];
                     let segmentStart = null;
                     for (let y = minY; y <= maxY; y++) {
@@ -295,7 +287,6 @@ export function PolygonDetailsForm(): React.JSX.Element {
                     });
                   }
 
-                  // đường thẳng ngang
                   const horizontalLines = [];
                   for (let y = minY; y <= maxY; y += step) {
                     const segments = [];
@@ -340,7 +331,6 @@ export function PolygonDetailsForm(): React.JSX.Element {
                     </React.Fragment>
                   );
                 })}
-                {/* Draw current polygon-in-progress */}
                 <Line
                   points={
                     mousePosition
@@ -379,8 +369,51 @@ export function PolygonDetailsForm(): React.JSX.Element {
               {polygons.map((polygon, index) => (
                 <TableRow key={index}>
                   <TableCell
-                    style={{ backgroundColor: zoneColor_of_polygon }}
-                  >{`Zone${index}`}</TableCell>
+                    style={{
+                      backgroundColor: zoneColor_of_polygon,
+                      position: 'relative',
+                      height: 40, // ✅ cố định chiều cao để không nhảy layout
+                      verticalAlign: 'middle'
+                    }}
+                  >
+                    {editIndex === index ? (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: 0,
+                          right: 0,
+                          transform: 'translateY(-50%)'
+                        }}
+                      >
+                        <TextField
+                          value={tempName}
+                          onChange={handleNameChange}
+                          onBlur={handleNameSave}
+                          onKeyDown={handleKeyDown}
+                          size='small'
+                          autoFocus
+                          variant='outlined'
+                          fullWidth
+                          InputProps={{
+                            style: { fontSize: 14, padding: '4px 8px' }
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <span
+                        style={{
+                          cursor: 'pointer',
+                          color: '#1976d2',
+                          display: 'inline-block',
+                          width: '100%'
+                        }}
+                        onClick={() => handleNameClick(index)}
+                      >
+                        {zoneNames[index] || `Zone${index}`}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>{polygon?.join(', ')}</TableCell>
                   <TableCell>
                     <IconButton
@@ -413,6 +446,7 @@ export function PolygonDetailsForm(): React.JSX.Element {
           color='error'
           onClick={() => {
             setPolygons([]);
+            setZoneNames([]); // ✅ Added
             setCurrentPoints([]);
           }}
         >
@@ -420,6 +454,5 @@ export function PolygonDetailsForm(): React.JSX.Element {
         </Button>
       </CardActions>
     </Card>
-    // </form>
   );
 }
