@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardActions from '@mui/material/CardActions';
@@ -13,7 +13,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Unstable_Grid2';
-import { Image, Layer, Line, Stage, Text } from 'react-konva';
+import { Image, Layer, Line, Stage } from 'react-konva';
 
 import {
   Table,
@@ -24,11 +24,29 @@ import {
   TableRow,
   Paper,
   IconButton,
-  TextField
+  TextField,
+  Box
 } from '@mui/material';
 import { XSquare } from '@phosphor-icons/react/dist/ssr/XSquare';
 
-const zoneColor_of_polygon = 'rgba(0, 0, 255, 0.05)';
+const zoneFillColor = 'rgba(0, 0, 255, 0.05)';
+
+const ZONE_COLORS = [
+  '#0d21f9ff',
+  '#FFC107',
+  '#FF5722',
+  '#26982aff',
+  '#E91E63',
+  '#9C27B0',
+  '#07649eff',
+  '#f83bffff',
+  '#61453aff',
+  '#41535cff'
+];
+
+const getNextColor = (zonesCount) => {
+  return ZONE_COLORS[zonesCount % ZONE_COLORS.length];
+};
 
 function isPointInPolygon(point, polygon) {
   const [x, y] = point;
@@ -54,11 +72,10 @@ export function PolygonDetailsForm() {
   const [mousePosition, setMousePosition] = useState(null);
   const [selectedCameraSN, setSelectedCameraSN] = useState('');
   const [cameras, setCameras] = useState([]);
-
-  // ✅ Sử dụng state `zones` để lưu mảng đối tượng JSON
   const [zones, setZones] = useState([]);
   const [editIndex, setEditIndex] = useState(null);
   const [tempName, setTempName] = useState('');
+  const stageRef = useRef(null);
 
   useEffect(() => {
     fetchData();
@@ -93,9 +110,16 @@ export function PolygonDetailsForm() {
         );
         if (!polyResp.ok) throw new Error('Failed to fetch polygons');
         const polyData = await polyResp.json();
+
         if (isMounted) {
-          // ✅ Cập nhật state zones với dữ liệu từ API
-          setZones(polyData.points || []);
+          const formattedZones = (polyData.points || []).map(
+            (zoneObj, index) => {
+              const name = Object.keys(zoneObj)[0];
+              const points = zoneObj[name];
+              return { name, points, color: getNextColor(index) };
+            }
+          );
+          setZones(formattedZones);
         }
       } catch (error) {
         console.error(error);
@@ -117,28 +141,45 @@ export function PolygonDetailsForm() {
     try {
       const response = await fetch('http://localhost:5101/api/v1/camera');
       const data = await response.json();
-      setCameras(data);
-    } catch (error) {}
+      // ✅ NOTE: Đảm bảo data là mảng trước khi set vào state
+      if (Array.isArray(data)) {
+        setCameras(data);
+      } else {
+        console.error('API response for cameras is not an array:', data);
+        setCameras([]); // Đảm bảo cameras luôn là một mảng
+      }
+    } catch (error) {
+      console.error('Failed to fetch cameras:', error);
+      setCameras([]); // Đặt về mảng rỗng khi có lỗi
+    }
   };
 
   const handleClick = (event) => {
-    const { x, y } = event.target.getStage().getPointerPosition();
-    const roundedX = Math.round(x);
-    const roundedY = Math.round(y);
-    setCurrentPoints([...currentPoints, roundedX, roundedY]);
+    const stage = event.target.getStage();
+    if (!stage) return;
+    const point = stage.getPointerPosition();
+    if (point) {
+      const roundedX = Math.round(point.x);
+      const roundedY = Math.round(point.y);
+      setCurrentPoints([...currentPoints, roundedX, roundedY]);
+    }
   };
 
   const handleMouseMove = (event) => {
     const stage = event.target.getStage();
-    const pos = stage.getPointerPosition();
+    const pos = stage?.getPointerPosition();
     setMousePosition(pos);
   };
 
   const handleComplete = () => {
     if (currentPoints.length > 2) {
       const newZoneName = `zone${zones.length}`;
-      // ✅ Tạo đối tượng JSON mới với khóa là tên zone
-      const newZone = { [newZoneName]: currentPoints };
+      const newColor = getNextColor(zones.length);
+      const newZone = {
+        name: newZoneName,
+        points: currentPoints,
+        color: newColor
+      };
       setZones([...zones, newZone]);
       setCurrentPoints([]);
     }
@@ -146,9 +187,11 @@ export function PolygonDetailsForm() {
 
   const handleUpdate = async () => {
     const url = `http://localhost:5101/api/v1/camera/${selectedCameraSN}`;
-
+    const pointsForAPI = zones.map((zone) => ({
+      [zone.name]: zone.points
+    }));
     const dataToUpdate = {
-      points: zones
+      points: pointsForAPI
     };
 
     try {
@@ -180,8 +223,7 @@ export function PolygonDetailsForm() {
 
   const handleNameClick = (index) => {
     setEditIndex(index);
-    const name = Object.keys(zones[index])[0];
-    setTempName(name);
+    setTempName(zones[index].name || '');
   };
 
   const handleNameChange = (e) => {
@@ -192,11 +234,8 @@ export function PolygonDetailsForm() {
     if (editIndex !== null) {
       const updatedZones = [...zones];
       const oldZone = updatedZones[editIndex];
-      const oldName = Object.keys(oldZone)[0];
-      const points = oldZone[oldName];
-      const newName = tempName.trim() || oldName; //LOẠI BỎ KHOẢNG TRẮNG ĐẦU CUOIIS KHI LƯU XUỐNG DB
-      // ✅ Cập nhật khóa của đối tượng JSON
-      updatedZones[editIndex] = { [newName]: points };
+      const newName = tempName.trim() || oldZone.name;
+      updatedZones[editIndex] = { ...oldZone, name: newName };
       setZones(updatedZones);
       setEditIndex(null);
     }
@@ -207,6 +246,43 @@ export function PolygonDetailsForm() {
       handleNameSave();
     }
   };
+
+  // const handleSaveToFile = async () => {
+  //   if (!selectedCameraSN) {
+  //     alert('Vui lòng chọn camera trước khi lưu!');
+  //     return;
+  //   }
+
+  //   const url = `http://localhost:5101/api/v1/save-zones-to-file`;
+  //   const zonesForFile = zones.map((zone) => ({
+  //     [zone.name]: zone.points
+  //   }));
+
+  //   const dataToSave = {
+  //     serial_number: selectedCameraSN,
+  //     zones: zonesForFile
+  //   };
+
+  //   try {
+  //     const response = await fetch(url, {
+  //       method: 'POST',
+  //       headers: {
+  //         'Content-Type': 'application/json'
+  //       },
+  //       body: JSON.stringify(dataToSave)
+  //     });
+
+  //     if (!response.ok) {
+  //       throw new Error(`Lưu file thất bại: ${response.status}`);
+  //     }
+
+  //     const result = await response.json();
+  //     alert(result.message);
+  //   } catch (error) {
+  //     console.error('Lỗi khi lưu file:', error);
+  //     alert('Đã xảy ra lỗi khi lưu file.');
+  //   }
+  // };
 
   return (
     <Card>
@@ -223,14 +299,16 @@ export function PolygonDetailsForm() {
               label='Thiết bị'
               variant='outlined'
             >
-              {cameras.map((option) => (
-                <MenuItem
-                  key={option.serial_number}
-                  value={option.serial_number}
-                >
-                  {option.name}
-                </MenuItem>
-              ))}
+              {/* ✅ NOTE: Thêm kiểm tra điều kiện Array.isArray(cameras) để tránh lỗi .map */}
+              {Array.isArray(cameras) &&
+                cameras.map((option) => (
+                  <MenuItem
+                    key={option.serial_number}
+                    value={option.serial_number}
+                  >
+                    {option.name}
+                  </MenuItem>
+                ))}
             </Select>
           </FormControl>
         </Grid>
@@ -242,6 +320,7 @@ export function PolygonDetailsForm() {
               height={800}
               onClick={handleClick}
               onMouseMove={handleMouseMove}
+              ref={stageRef}
             >
               <Layer>
                 {image && (
@@ -249,13 +328,10 @@ export function PolygonDetailsForm() {
                 )}
 
                 {zones.map((zone, index) => {
-                  // ✅ Lấy tên và điểm từ đối tượng zone
-                  const name = Object.keys(zone)[0];
-                  const points = zone[name];
+                  const { points, color } = zone;
                   const step = 20;
-
-                  const xs = points.filter((_, i) => i % 2 === 0);
-                  const ys = points.filter((_, i) => i % 2 === 1);
+                  const xs = points?.filter((_, i) => i % 2 === 0) || [];
+                  const ys = points?.filter((_, i) => i % 2 === 1) || [];
                   const minX = Math.min(...xs);
                   const maxX = Math.max(...xs);
                   const minY = Math.min(...ys);
@@ -320,96 +396,20 @@ export function PolygonDetailsForm() {
                       );
                     });
                   }
-                  // // ✅ NOTE: Bắt đầu phần thêm nhãn tên zone
-                  // const point = zone[name];
-                  // const textX = point[0]; // Tọa độ x của đỉnh đầu tiên
-                  // const textY = point[1] - 10; // Tọa độ y của đỉnh đầu tiên, trừ đi 10 để nhãn nằm trên đường viền
 
-                  if (points && points.length >= 4) {
-                    // ✅ 1. Lấy tọa độ hai đỉnh đầu tiên
-                    const x1 = points[0];
-                    const y1 = points[1];
-                    const x2 = points[2];
-                    const y2 = points[3];
-
-                    // // ✅ 2. Tính toán điểm giữa (midpoint) của cạnh
-                    // const midX = (x1 + x2) / 2;
-                    // const midY = (y1 + y2) / 2;
-
-                    // ✅ 3. Tính góc quay
-                    const dx = x2 - x1;
-                    const dy = y2 - y1;
-                    let rotationAngle = (Math.atan2(dy, dx) * 180) / Math.PI;
-                    // ✅ NOTE: Bắt đầu logic xử lý góc quay và căn chỉnh văn bản
-                    let offsetX = 0;
-                    let offsetY = 0;
-                    const offset = 15; // Khoảng cách dịch chuyển
-                    let textAlign = 'left';
-
-                    // ✅ NOTE: Chuẩn hóa góc quay để nhãn không bị ngược
-                    if (rotationAngle > 90 || rotationAngle < -90) {
-                      rotationAngle += 180;
-                      if (rotationAngle > 180) {
-                        rotationAngle -= 360;
-                      }
-                      // Đảo ngược căn chỉnh văn bản và hướng dịch chuyển
-                      textAlign = 'right';
-                      const angleInRadians = (rotationAngle * Math.PI) / 180;
-
-                      // Tính tọa độ dịch chuyển cho nhãn
-                      offsetX = Math.sin(angleInRadians) * offset;
-                      offsetY = -Math.cos(angleInRadians) * offset;
-                    } else {
-                      const angleInRadians = (rotationAngle * Math.PI) / 180;
-                      offsetX = Math.sin(angleInRadians) * offset;
-                      offsetY = -Math.cos(angleInRadians) * offset;
-                    }
-                    // Vị trí nhãn tạm thời
-                    let tempLabelX = x1 + offsetX;
-                    let tempLabelY = y1 + offsetY;
-
-                    // ✅ NOTE: Sử dụng hàm isPointInPolygon để kiểm tra
-                    if (isPointInPolygon([tempLabelX, tempLabelY], points)) {
-                      // Nếu nhãn nằm bên trong, đảo ngược hướng dịch chuyển
-                      offsetX = -offsetX;
-                      offsetY = -offsetY;
-                    }
-
-                    // Cập nhật vị trí cuối cùng của nhãn
-                    const labelX = x1 + offsetX;
-                    const labelY = y1 + offsetY;
-
-                    return (
-                      <React.Fragment key={index}>
-                        <Line
-                          points={points}
-                          stroke='blue'
-                          strokeWidth={2}
-                          closed
-                          fill={zoneColor_of_polygon}
-                        />
-                        {verticalLines}
-                        {horizontalLines}
-                        {/* ✅ NOTE: Thêm thành phần Text để hiển thị tên zone */}
-                        <Text
-                          x={labelX}
-                          y={labelY}
-                          text={name}
-                          fontSize={18}
-                          fill='yellow'
-                          rotation={rotationAngle}
-                          // ✅ NOTE: Căn chỉnh văn bản tùy thuộc vào góc quay
-                          //textAlign={textAlign}
-                          shadowColor='black'
-                          shadowBlur={2}
-                          shadowOffset={{ x: 1, y: 1 }}
-                          shadowOpacity={0.8}
-                        />
-                      </React.Fragment>
-                    );
-                  }
-                  //Trả về NULL nếu không đủ điểm
-                  return null;
+                  return (
+                    <React.Fragment key={index}>
+                      <Line
+                        points={points}
+                        stroke={color}
+                        strokeWidth={2}
+                        closed
+                        fill={zoneFillColor}
+                      />
+                      {verticalLines}
+                      {horizontalLines}
+                    </React.Fragment>
+                  );
                 })}
                 <Line
                   points={
@@ -434,8 +434,11 @@ export function PolygonDetailsForm() {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ width: '25%' }}>
+                <TableCell sx={{ width: '20%' }}>
                   <strong>Zone</strong>
+                </TableCell>
+                <TableCell sx={{ width: '5%' }}>
+                  <strong>Color</strong>
                 </TableCell>
                 <TableCell>
                   <strong>Points</strong>
@@ -447,32 +450,31 @@ export function PolygonDetailsForm() {
             </TableHead>
             <TableBody>
               {zones.map((zone, index) => {
-                const name = Object.keys(zone)[0];
-                const points = zone[name];
+                const { name, points, color } = zone;
                 return (
                   <TableRow key={index}>
                     <TableCell
-                      style={{
-                        backgroundColor: zoneColor_of_polygon,
+                      sx={{
+                        backgroundColor: 'rgba(0, 0, 255, 0.05)',
+                        color: '#1976d2', // Set text color to default blue
                         position: 'relative',
                         height: 40,
                         verticalAlign: 'middle',
-                        // ✅ Đảm bảo nội dung không tràn ra ngoài
                         wordBreak: 'break-word',
                         whiteSpace: 'normal'
                       }}
                     >
                       {editIndex === index ? (
-                        <div
-                          style={{
+                        <Box
+                          sx={{
                             position: 'absolute',
-                            top: '50%',
-                            left: 15,
+                            top: 0,
+                            bottom: 0,
+                            left: 0,
                             right: 0,
-                            transform: 'translateY(-50%)',
                             display: 'flex',
                             alignItems: 'center',
-                            px: 1 // Padding ngang để tạo khoảng cách
+                            px: 1
                           }}
                         >
                           <TextField
@@ -485,28 +487,27 @@ export function PolygonDetailsForm() {
                             variant='standard'
                             fullWidth
                             InputProps={{
-                              style: { fontSize: 14, padding: '4px 8px' },
-                              disableUnderline: true
+                              disableUnderline: true,
+                              style: { padding: '4px 8px' }
                             }}
                             sx={{
                               '& .MuiInputBase-input': {
-                                p: 0 // ✅ Bỏ padding mặc định của input
+                                p: 0
                               },
-                              // ✅ Sử dụng sx để tùy chỉnh kiểu dáng
                               '& .MuiInputBase-root:before': {
-                                borderBottom: 'none !important' // Đảm bảo gạch chân ẩn
+                                borderBottom: 'none'
                               },
                               '& .MuiInputBase-root:after': {
-                                borderBottom: 'none !important' // Đảm bảo gạch chân khi focus ẩn
+                                borderBottom: 'none'
                               }
                             }}
                           />
-                        </div>
+                        </Box>
                       ) : (
                         <span
                           style={{
                             cursor: 'pointer',
-                            color: '#1976d2',
+                            color: 'inherit',
                             display: 'inline-block',
                             width: '100%',
                             padding: '8px'
@@ -516,6 +517,16 @@ export function PolygonDetailsForm() {
                           {name}
                         </span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <Box
+                        sx={{
+                          width: 20,
+                          height: 20,
+                          backgroundColor: color,
+                          borderRadius: '4px'
+                        }}
+                      />
                     </TableCell>
                     <TableCell>{points?.join(', ')}</TableCell>
                     <TableCell>
@@ -539,6 +550,11 @@ export function PolygonDetailsForm() {
         <Button variant='contained' color='secondary' onClick={handleComplete}>
           Xác nhận
         </Button>
+
+        {/* Nút lưu vào file mới
+    <Button variant='contained' color='primary' onClick={handleSaveToFile}>
+      Lưu vào file
+    </Button> */}
 
         <Button variant='contained' color='success' onClick={handleUpdate}>
           Lưu
