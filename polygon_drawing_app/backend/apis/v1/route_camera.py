@@ -7,11 +7,13 @@ from sqlalchemy.orm import Session
 
 from db.models import Camera
 from db.session import get_db
+# ✅ Cập nhật import
 from schemas.camera import CameraShow, CameraUpdatePoints
 
 router = APIRouter()
 
 def extract_frame_to_base64(video_path: str, frame_number: int) -> str:
+    # ... (Không thay đổi) ...
     cap = cv2.VideoCapture(video_path)
 
     curr_frame = 0
@@ -20,10 +22,10 @@ def extract_frame_to_base64(video_path: str, frame_number: int) -> str:
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
-            break  # Exit loop if video ends
+            break
 
         if curr_frame == frame_number:
-            _, buffer = cv2.imencode('.jpg', frame)  # Convert frame to JPEG format
+            _, buffer = cv2.imencode('.jpg', frame)
             base64_str = base64.b64encode(buffer).decode("utf-8")
             break
 
@@ -35,10 +37,7 @@ def extract_frame_to_base64(video_path: str, frame_number: int) -> str:
 
 class CameraController:
     def __init__(self):
-        # Create an APIRouter instance
         self.router = APIRouter(redirect_slashes=False)
-
-        # Bind the class methods as route handlers
         self.router.add_api_route("", self.get_camera, methods=["GET"])
         self.router.add_api_route("/frame/{frame_number}", self.get_frame_camera, methods=["GET"])
         self.router.add_api_route("/{serial_number}", self.update_camera, methods=["PUT"])
@@ -46,7 +45,7 @@ class CameraController:
 
     @staticmethod
     def get_camera(
-            session: Session = Depends(get_db)
+        session: Session = Depends(get_db)
     ):
         query = text(
             """
@@ -62,6 +61,7 @@ class CameraController:
         for row in rows:
             video_path = f"assets/{row.name}.mp4"
 
+            # ✅ `points` bây giờ là một list các object, không phải list các list
             camera = CameraShow(
                 serial_number=row[0],
                 name=row[1],
@@ -74,18 +74,19 @@ class CameraController:
 
     @staticmethod
     def get_frame_camera(
-            frame_number: int
+        frame_number: int
     ):
+        # ... (Không thay đổi) ...
         """Extract a specific frame and convert it to Base64."""
-        # Load video file
         video_path = "assets/MCT-1.1.mp4"
         return extract_frame_to_base64(video_path, frame_number)
 
     @staticmethod
     def update_camera(
-            serial_number: str,
-            item: CameraUpdatePoints,
-            session: Session = Depends(get_db)
+        serial_number: str,
+        # ✅ Sử dụng schema đã cập nhật
+        item: CameraUpdatePoints,
+        session: Session = Depends(get_db)
     ):
         db_item = session.query(Camera).filter(Camera.serial_number == serial_number).first()
         if db_item is None:

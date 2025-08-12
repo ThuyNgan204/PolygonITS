@@ -1,12 +1,13 @@
-from typing import Optional
+from typing import List, Optional, Dict, Any
 
 from pydantic import BaseModel
 
-# Pydantic Schemas
+# ✅ Cập nhật schema để sử dụng Dict[str, Any] cho mỗi zone
 class CameraBase(BaseModel):
     serial_number: str
     name: str
-    points: list
+    points: List[Dict[str, Any]]
+    
     class Config:
         orm_mode = True
 
@@ -17,5 +18,4 @@ class CameraShow(CameraBase):
     image: Optional[str]
 
 class CameraUpdatePoints(BaseModel):
-    points: list
-
+    points: List[Dict[str, Any]]
