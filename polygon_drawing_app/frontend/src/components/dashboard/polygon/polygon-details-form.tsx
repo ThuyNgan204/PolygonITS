@@ -596,13 +596,14 @@ export function PolygonDetailsForm() {
         autoHideDuration={3000}
         onClose={handleClose}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{ top: '70px !important' }}
       >
         <Alert
           onClose={handleClose}
           severity={notification.type}
           sx={{ width: '100%' }}
         >
-          {notification.message}
+          {notification.message}bb
         </Alert>
       </Snackbar>
     </Card>
