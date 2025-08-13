@@ -14,7 +14,6 @@ import Select from '@mui/material/Select';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Unstable_Grid2';
 import { Image, Layer, Line, Stage } from 'react-konva';
-
 import {
   Table,
   TableBody,
@@ -25,11 +24,14 @@ import {
   Paper,
   IconButton,
   TextField,
-  Box
+  Box,
+  Snackbar,
+  Alert
 } from '@mui/material';
 import { XSquare } from '@phosphor-icons/react/dist/ssr/XSquare';
 
 const zoneFillColor = 'rgba(0, 0, 255, 0.05)';
+const VALID_ZONE_NAMES = ['inner', 'outter'];
 
 const ZONE_COLORS = [
   '#0d21f9ff',
@@ -76,6 +78,22 @@ export function PolygonDetailsForm() {
   const [editIndex, setEditIndex] = useState(null);
   const [tempName, setTempName] = useState('');
   const stageRef = useRef(null);
+  const [notification, setNotification] = useState({
+    open: false,
+    message: '',
+    type: 'success'
+  });
+  const [originalName, setOriginalName] = useState('');
+  const [nameError, setNameError] = useState(false);
+
+  useEffect(() => {
+    if (notification.open) {
+      const timer = setTimeout(() => {
+        setNotification({ ...notification, open: false });
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   useEffect(() => {
     fetchData();
@@ -141,16 +159,15 @@ export function PolygonDetailsForm() {
     try {
       const response = await fetch('http://localhost:5101/api/v1/camera');
       const data = await response.json();
-      // ✅ NOTE: Đảm bảo data là mảng trước khi set vào state
       if (Array.isArray(data)) {
         setCameras(data);
       } else {
         console.error('API response for cameras is not an array:', data);
-        setCameras([]); // Đảm bảo cameras luôn là một mảng
+        setCameras([]);
       }
     } catch (error) {
       console.error('Failed to fetch cameras:', error);
-      setCameras([]); // Đặt về mảng rỗng khi có lỗi
+      setCameras([]);
     }
   };
 
@@ -208,9 +225,26 @@ export function PolygonDetailsForm() {
       }
       await response.json();
       fetchData();
+      setNotification({
+        open: true,
+        message: 'Lưu thành công!',
+        type: 'success'
+      });
     } catch (error) {
       console.error('Error updating camera:', error);
+      setNotification({
+        open: true,
+        message: 'Lưu thất bại!',
+        type: 'error'
+      });
     }
+  };
+
+  const handleClose = (event, reason) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setNotification({ ...notification, open: false });
   };
 
   const handleDeviceChange = (e) => {
@@ -223,7 +257,10 @@ export function PolygonDetailsForm() {
 
   const handleNameClick = (index) => {
     setEditIndex(index);
-    setTempName(zones[index].name || '');
+    const currentName = zones[index].name || '';
+    setTempName(currentName);
+    setOriginalName(currentName); // Lưu tên gốc
+    setNameError(false); // Reset lỗi
   };
 
   const handleNameChange = (e) => {
@@ -232,57 +269,40 @@ export function PolygonDetailsForm() {
 
   const handleNameSave = () => {
     if (editIndex !== null) {
-      const updatedZones = [...zones];
-      const oldZone = updatedZones[editIndex];
-      const newName = tempName.trim() || oldZone.name;
-      updatedZones[editIndex] = { ...oldZone, name: newName };
-      setZones(updatedZones);
-      setEditIndex(null);
+      const newName = tempName.trim().toLowerCase();
+
+      if (!VALID_ZONE_NAMES.includes(newName)) {
+        setNameError(true);
+      } else {
+        const updatedZones = [...zones];
+        const oldZone = updatedZones[editIndex];
+        updatedZones[editIndex] = { ...oldZone, name: newName };
+        setZones(updatedZones);
+        setEditIndex(null);
+        setNameError(false);
+      }
     }
+  };
+
+  const handleNameBlur = () => {
+    if (nameError) {
+      setTempName(originalName);
+      setNameError(false);
+    }
+
+    setEditIndex(null);
   };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
-      handleNameSave();
+      const newName = tempName.trim().toLowerCase();
+      if (VALID_ZONE_NAMES.includes(newName)) {
+        handleNameSave();
+      } else {
+        setNameError(true);
+      }
     }
   };
-
-  // const handleSaveToFile = async () => {
-  //   if (!selectedCameraSN) {
-  //     alert('Vui lòng chọn camera trước khi lưu!');
-  //     return;
-  //   }
-
-  //   const url = `http://localhost:5101/api/v1/save-zones-to-file`;
-  //   const zonesForFile = zones.map((zone) => ({
-  //     [zone.name]: zone.points
-  //   }));
-
-  //   const dataToSave = {
-  //     serial_number: selectedCameraSN,
-  //     zones: zonesForFile
-  //   };
-
-  //   try {
-  //     const response = await fetch(url, {
-  //       method: 'POST',
-  //       headers: {
-  //         'Content-Type': 'application/json'
-  //       },
-  //       body: JSON.stringify(dataToSave)
-  //     });
-
-  //     if (!response.ok) {
-  //       throw new Error(`Lưu file thất bại: ${response.status}`);
-  //     }
-
-  //     const result = await response.json();
-  //     alert(result.message);
-  //   } catch (error) {
-  //     console.error('Lỗi khi lưu file:', error);
-  //     alert('Đã xảy ra lỗi khi lưu file.');
-  //   }
-  // };
 
   return (
     <Card>
@@ -299,7 +319,6 @@ export function PolygonDetailsForm() {
               label='Thiết bị'
               variant='outlined'
             >
-              {/* ✅ NOTE: Thêm kiểm tra điều kiện Array.isArray(cameras) để tránh lỗi .map */}
               {Array.isArray(cameras) &&
                 cameras.map((option) => (
                   <MenuItem
@@ -456,7 +475,7 @@ export function PolygonDetailsForm() {
                     <TableCell
                       sx={{
                         backgroundColor: 'rgba(0, 0, 255, 0.05)',
-                        color: '#1976d2', // Set text color to default blue
+                        color: '#1976d2',
                         position: 'relative',
                         height: 40,
                         verticalAlign: 'middle',
@@ -480,20 +499,24 @@ export function PolygonDetailsForm() {
                           <TextField
                             value={tempName}
                             onChange={handleNameChange}
-                            onBlur={handleNameSave}
+                            onBlur={handleNameBlur}
                             onKeyDown={handleKeyDown}
                             size='small'
                             autoFocus
                             variant='standard'
                             fullWidth
+                            error={nameError}
+                            helperText={
+                              nameError
+                                ? 'Tên zone phải là "inner" hoặc "outter"'
+                                : ''
+                            }
                             InputProps={{
                               disableUnderline: true,
                               style: { padding: '4px 8px' }
                             }}
                             sx={{
-                              '& .MuiInputBase-input': {
-                                p: 0
-                              },
+                              '& .MuiInputBase-input': { p: 0 },
                               '& .MuiInputBase-root:before': {
                                 borderBottom: 'none'
                               },
@@ -551,11 +574,6 @@ export function PolygonDetailsForm() {
           Xác nhận
         </Button>
 
-        {/* Nút lưu vào file mới
-    <Button variant='contained' color='primary' onClick={handleSaveToFile}>
-      Lưu vào file
-    </Button> */}
-
         <Button variant='contained' color='success' onClick={handleUpdate}>
           Lưu
         </Button>
@@ -572,6 +590,21 @@ export function PolygonDetailsForm() {
           Xóa
         </Button>
       </CardActions>
+
+      <Snackbar
+        open={notification.open}
+        autoHideDuration={3000}
+        onClose={handleClose}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={handleClose}
+          severity={notification.type}
+          sx={{ width: '100%' }}
+        >
+          {notification.message}
+        </Alert>
+      </Snackbar>
     </Card>
   );
 }
