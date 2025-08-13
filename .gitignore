@@ -1,4 +1,4 @@
 node_modules/
 video_streaming/videos/*.mp4
-
+.next
 __pycache__

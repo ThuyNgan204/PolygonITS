@@ -603,7 +603,7 @@ export function PolygonDetailsForm() {
           severity={notification.type}
           sx={{ width: '100%' }}
         >
-          {notification.message}bb
+          {notification.message}
         </Alert>
       </Snackbar>
     </Card>
