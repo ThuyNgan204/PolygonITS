@@ -33,6 +33,7 @@ interface VideoOption {
   video_path: string;
 }
 
+
 const STREAM_WIDTH = 1200;
 const STREAM_HEIGHT = 800;
 
@@ -41,7 +42,8 @@ export function TrackingForm(): React.JSX.Element {
   const [videos, setVideos] = useState<VideoOption[]>([]);
   const [trackingData, setTrackingData] = useState<ZoneData[]>([]);
   const [liveCount, setLiveCount] = useState<ZoneData | null>(null);
-  const [polygonData, setPolygonData] = useState<number[][]>([]);
+  //const [polygonData, setPolygonData] = useState<number[][]>([]);
+  const [polygonData, setPolygonData] = useState<Array<Record<string, number[]>>>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -113,14 +115,28 @@ export function TrackingForm(): React.JSX.Element {
     return () => observer.disconnect();
   }, []);
 
-  // Convert polygon coordinate arrays to SVG points strings for <polygon> elements
-  const polygonsAsPointsStrings = polygonData.map((points) => {
-    let strPoints = '';
-    for (let i = 0; i < points.length; i += 2) {
-      strPoints += `${points[i]},${points[i + 1]} `;
-    }
-    return strPoints.trim();
-  });
+  const colors = [
+  '#0d21f9ff',
+  '#FFC107',
+  '#FF5722',
+  '#26982aff',
+  '#E91E63',
+  '#9C27B0',
+  '#07649eff',
+  '#f83bffff',
+  '#61453aff',
+  '#36454cff']; 
+
+  const polygonsWithColors = polygonData.flatMap((item) => Object.values(item))
+    .filter(points => points && Array.isArray(points)) // Lọc bỏ các giá trị không hợp lệ
+    .map((points, index) => {
+      let strPoints = '';
+      for (let i = 0; i < points.length; i += 2) {
+        strPoints += `${points[i]},${points[i + 1]} `;
+      }
+      const color = colors[index % colors.length]; 
+      return { points: strPoints.trim(), color };
+    });
 
   // Video select change handler
   const handleVideoChange = (event: SelectChangeEvent<string>) => {
@@ -168,12 +184,19 @@ export function TrackingForm(): React.JSX.Element {
                 border: '1px solid transparent', // optional for debug
                 overflow: 'hidden',
               }}>
-                <IframeWithImageAndPolygons 
+                {/* <IframeWithImageAndPolygons 
                   imgSrc={`http://localhost:5101/api/v1/tracking/stream-rtsp/${selectedVideo}`} 
                   polygons={polygonsAsPointsStrings} 
                   streamWidth={STREAM_WIDTH}
                   streamHeight={STREAM_HEIGHT}
-                  />
+                  /> */}
+
+                  <IframeWithImageAndPolygons 
+                  imgSrc={`http://localhost:5101/api/v1/tracking/stream-rtsp/${selectedVideo}`} 
+                  polygons={polygonsWithColors} // Truyền mảng mới
+                  streamWidth={STREAM_WIDTH}
+                  streamHeight={STREAM_HEIGHT}
+/>
               </Box>
             ) : (
               <Typography>Vui lòng chọn video để bắt đầu.</Typography>
