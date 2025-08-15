@@ -50,6 +50,13 @@ const getNextColor = (zonesCount) => {
   return ZONE_COLORS[zonesCount % ZONE_COLORS.length];
 };
 
+const assignColors = (currentZones) => {
+    return currentZones.map((zone, index) => ({
+        ...zone,
+        color: getNextColor(index)
+    }));
+};
+
 function isPointInPolygon(point, polygon) {
   const [x, y] = point;
   let inside = false;
@@ -188,19 +195,18 @@ export function PolygonDetailsForm() {
     setMousePosition(pos);
   };
 
-  const handleComplete = () => {
+const handleComplete = () => {
     if (currentPoints.length > 2) {
-      const newZoneName = `zone${zones.length}`;
-      const newColor = getNextColor(zones.length);
-      const newZone = {
-        name: newZoneName,
-        points: currentPoints,
-        color: newColor
-      };
-      setZones([...zones, newZone]);
-      setCurrentPoints([]);
+        const newZoneName = `zone${zones.length}`;
+        const newZone = {
+            name: newZoneName,
+            points: currentPoints
+        };
+        const updatedZones = [...zones, newZone];
+        setZones(assignColors(updatedZones)); // Gán lại màu cho tất cả các zone
+        setCurrentPoints([]);
     }
-  };
+};
 
   const handleUpdate = async () => {
     const url = `http://localhost:5101/api/v1/camera/${selectedCameraSN}`;
@@ -252,8 +258,9 @@ export function PolygonDetailsForm() {
   };
 
   const handleDelete = (index) => {
-    setZones(zones.filter((_, i) => i !== index));
-  };
+    const updatedZones = zones.filter((_, i) => i !== index);
+    setZones(assignColors(updatedZones)); // Gán lại màu cho các zone còn lại
+};
 
   const handleNameClick = (index) => {
     setEditIndex(index);
