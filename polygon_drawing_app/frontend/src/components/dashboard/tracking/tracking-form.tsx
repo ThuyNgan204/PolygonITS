@@ -40,8 +40,8 @@ const STREAM_HEIGHT = 800;
 export function TrackingForm(): React.JSX.Element {
   const [selectedVideo, setSelectedVideo] = useState('');
   const [videos, setVideos] = useState<VideoOption[]>([]);
-  const [trackingData, setTrackingData] = useState<ZoneData[]>([]);
-  const [liveCount, setLiveCount] = useState<ZoneData | null>(null);
+  // const [trackingData, setTrackingData] = useState<ZoneData[]>([]);
+  // const [liveCount, setLiveCount] = useState<ZoneData | null>(null);
   //const [polygonData, setPolygonData] = useState<number[][]>([]);
   const [polygonData, setPolygonData] = useState<Array<Record<string, number[]>>>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -141,8 +141,8 @@ export function TrackingForm(): React.JSX.Element {
   // Video select change handler
   const handleVideoChange = (event: SelectChangeEvent<string>) => {
     setSelectedVideo(event.target.value);
-    setTrackingData([]);
-    setLiveCount(null);
+    //setTrackingData([]);
+    //setLiveCount(null);
     setPolygonData([]);
     setIsProcessing(false);
     if (eventSourceRef.current) {

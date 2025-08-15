@@ -201,14 +201,34 @@ class TrackingController:
         if camera_id not in vehicle_data_store:
             vehicle_data_store[camera_id] = {}
 
+        # for zone_data in zones:
+        #     zone = zone_data.zone
+
+        #     # Directly assign counts from the incoming payload
+        #     vehicle_data_cumulative_store[camera_id][zone] = {
+        #         "number_of_motorbike": zone_data.number_of_motorbike,
+        #         "number_of_car": zone_data.number_of_car,
+        #     }
+
+        # Đoạn code đã được sửa
         for zone_data in zones:
             zone = zone_data.zone
+            
+            # Khởi tạo zone nếu chưa tồn tại
+            if zone not in vehicle_data_cumulative_store[camera_id]:
+                vehicle_data_cumulative_store[camera_id][zone] = {
+                    "number_of_motorbike": 0,
+                    "number_of_car": 0,
+                }
 
-            # Directly assign counts from the incoming payload
-            vehicle_data_cumulative_store[camera_id][zone] = {
-                "number_of_motorbike": zone_data.number_of_motorbike,
-                "number_of_car": zone_data.number_of_car,
-            }
+            # CỘNG DỒN giá trị mới vào giá trị cũ
+            if not data.reset_state:
+                vehicle_data_cumulative_store[camera_id][zone]["number_of_motorbike"] += zone_data.number_of_motorbike
+                vehicle_data_cumulative_store[camera_id][zone]["number_of_car"] += zone_data.number_of_car
+            else:
+                # Ghi đè giá trị nếu reset_state là True
+                vehicle_data_cumulative_store[camera_id][zone]["number_of_motorbike"] = zone_data.number_of_motorbike
+                vehicle_data_cumulative_store[camera_id][zone]["number_of_car"] = zone_data.number_of_car
 
         # Update frontend-facing store by copying cumulative data (fresh snapshot)
         copy_store = {

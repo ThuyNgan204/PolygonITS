@@ -31,7 +31,7 @@ import {
 import { XSquare } from '@phosphor-icons/react/dist/ssr/XSquare';
 
 const zoneFillColor = 'rgba(0, 0, 255, 0.05)';
-const VALID_ZONE_NAMES = ['inner', 'outter'];
+const VALID_ZONE_NAMES = ['inner', 'outer'];
 
 const ZONE_COLORS = [
   '#0d21f9ff',
