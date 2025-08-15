@@ -508,7 +508,7 @@ export function PolygonDetailsForm() {
                             error={nameError}
                             helperText={
                               nameError
-                                ? 'Tên zone phải là "inner" hoặc "outter"'
+                                ? 'Tên zone phải là "inner" hoặc "outer"'
                                 : ''
                             }
                             InputProps={{
