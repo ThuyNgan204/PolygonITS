@@ -184,16 +184,9 @@ export function TrackingForm(): React.JSX.Element {
                 border: '1px solid transparent', // optional for debug
                 overflow: 'hidden',
               }}>
-                {/* <IframeWithImageAndPolygons 
-                  imgSrc={`http://localhost:5101/api/v1/tracking/stream-rtsp/${selectedVideo}`} 
-                  polygons={polygonsAsPointsStrings} 
-                  streamWidth={STREAM_WIDTH}
-                  streamHeight={STREAM_HEIGHT}
-                  /> */}
-
                   <IframeWithImageAndPolygons 
                   imgSrc={`http://localhost:5101/api/v1/tracking/stream-rtsp/${selectedVideo}`} 
-                  polygons={polygonsWithColors} // Truyền mảng mới
+                  polygons={polygonsWithColors}
                   streamWidth={STREAM_WIDTH}
                   streamHeight={STREAM_HEIGHT}
 />

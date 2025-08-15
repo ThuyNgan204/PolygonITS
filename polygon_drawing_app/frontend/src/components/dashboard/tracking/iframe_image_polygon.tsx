@@ -104,10 +104,6 @@ export function IframeWithImageAndPolygons({ imgSrc, polygons, streamWidth, stre
       {iframeBody &&
         createPortal(
           <svg width="100%" height="100%" style={{ position: 'absolute', top: 0, left: 0 }}>
-            {/* {polygons.map((pts, i) => (
-              <polygon key={i} points={pts} fill="rgba(0,0,255,0.2)" stroke="blue" strokeWidth={2} />
-            ))} */}
-
           {polygons.map((polygon, index) => {
               const points = polygon.points.split(' ').flatMap(p => p.split(',').map(Number));
 
@@ -147,7 +143,7 @@ export function IframeWithImageAndPolygons({ imgSrc, polygons, streamWidth, stre
                               y1={startY}
                               x2={x}
                               y2={endY}
-                              stroke='white' // Màu của lưới giống với viền
+                              stroke='white'
                               strokeWidth={0.5}
                               opacity={0.3}
                           />
