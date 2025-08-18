@@ -15,6 +15,9 @@ from datetime import datetime, timedelta
 router = APIRouter()
 update_event = asyncio.Event()
 
+# new global variable
+chart_history_store: Dict[str, list] = {}
+
 # Stores data specifically for the Overview page, updated every 1 minute.
 overview_data_store: Dict[str, Dict[str, Dict[str, int]]] = {}
 
@@ -78,6 +81,8 @@ class TrackingController:
         
         self.router.add_api_route("/vehicle-data-batch", TrackingController.post_vehicle_data_batch, methods=["POST"])
         self.router.add_api_route("/vehicle-data-stream/{camera_id}", self.stream_vehicle_data, methods=['GET'])
+        # New endpoint for chart history
+        self.router.add_api_route("/chart-history/{camera_id}", self.get_chart_history, methods=["GET"])
 
     @staticmethod
     async def stream_video_data(video_name: str):
@@ -188,7 +193,6 @@ class TrackingController:
 
         if not success:
             raise HTTPException(status_code=500, detail="Failed to encode frame to JPEG")
-
         jpeg_bytes = buffer_jpeg.tobytes()
 
         return Response(content=jpeg_bytes, media_type="image/jpeg")
@@ -227,9 +231,24 @@ class TrackingController:
             overview_data_store[camera_id] = vehicle_data_store[camera_id].copy()
             last_overview_update[camera_id] = current_time
 
-            # **LƯU Ý QUAN TRỌNG:** KHÔNG reset vehicle_data_store ở đây
-            # để đảm bảo nó luôn cộng dồn liên tục.
-
+            # Calculate total vehicles for chart history
+            total_motorbikes = sum(z["number_of_motorbike"] for z in overview_data_store[camera_id].values())
+            total_cars = sum(z["number_of_car"] for z in overview_data_store[camera_id].values())
+            
+            # Store the data point in the in-memory chart history
+            if camera_id not in chart_history_store:
+                chart_history_store[camera_id] = []
+            
+            # Add new data point to history, with a maximum size to prevent memory issues
+            if len(chart_history_store[camera_id]) >= 100:
+                chart_history_store[camera_id].pop(0)
+            
+            chart_history_store[camera_id].append({
+                "time": current_time.strftime("%H:%M"),
+                "motorbikes": total_motorbikes,
+                "cars": total_cars,
+            })
+            
         return {"message": "Vehicle data received and distributed."}
     
     @staticmethod
@@ -259,3 +278,11 @@ class TrackingController:
                 yield f"data: {json.dumps(data)}\n\n"
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
+    
+    @staticmethod
+    def get_chart_history(camera_id: str):
+        """
+        Returns the historical chart data for a given camera_id.
+        """
+        data = chart_history_store.get(camera_id, [])
+        return {"camera_id": camera_id, "chartData": data}
