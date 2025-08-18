@@ -1,46 +1,93 @@
 "use client";
 
-import { Container, Typography, Grid } from "@mui/material";
+import { useState, useEffect } from "react";
+import { Container, Grid } from "@mui/material";
 import CameraStatsCard from "@/components/dashboard/overview/CameraStatsCard";
 
 export default function OverviewPage() {
-  // Mock data - sau này thay bằng API call
-  const cameras = [
-    {
-      cameraName: "NguyenOanh-PhanVanTri-01",
-      zones: [
-        { name: "Inner", motorbikes: 36, cars: 17 },
-        { name: "Outer", motorbikes: 27, cars: 23 },
-      ],
-      chartData: [
-        { time: "07:00", motorbikes: 20, cars: 10 },
-        { time: "07:10", motorbikes: 25, cars: 12 },
-        { time: "07:20", motorbikes: 30, cars: 15 },
-        { time: "07:30", motorbikes: 36, cars: 17 },
-      ],
-      lastUpdated: "10:00 AM",
-    },
-    {
-      cameraName: "NguyenOanh-PhanVanTri-02",
-      zones: [
-        { name: "Inner", motorbikes: 42, cars: 19 },
-        { name: "Outer", motorbikes: 30, cars: 25 },
-      ],
-      chartData: [
-        { time: "07:00", motorbikes: 28, cars: 14 },
-        { time: "07:10", motorbikes: 32, cars: 16 },
-        { time: "07:20", motorbikes: 38, cars: 18 },
-        { time: "07:30", motorbikes: 42, cars: 19 },
-      ],
-      lastUpdated: "10:00 AM",
-    },
-  ];
+  const [cameras, setCameras] = useState([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const cameraIds = ["SN003", "SN004"];
+        const fetchedData = await Promise.all(
+          cameraIds.map(async (id) => {
+            const response = await fetch(`http://localhost:5101/api/v1/tracking/overview-data/${id}`);
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const { data } = await response.json();
+
+            const formattedData = {
+              cameraName: id,
+              zones: Object.entries(data).map(([name, counts]) => ({
+                name,
+                motorbikes: counts.number_of_motorbike,
+                cars: counts.number_of_car,
+              })),
+              lastUpdated: new Date().toLocaleTimeString(),
+            };
+            return formattedData;
+          })
+        );
+        
+        setCameras(prevCameras => {
+          // Tạo một bản sao của mảng cameras để thay đổi
+          const nextCameras = [...prevCameras];
+          
+          fetchedData.forEach(newCamData => {
+            const existingCamIndex = nextCameras.findIndex(cam => cam.cameraName === newCamData.cameraName);
+            
+            if (existingCamIndex !== -1) {
+              // Cập nhật camera đã tồn tại
+              const existingCam = nextCameras[existingCamIndex];
+              const innerZone = newCamData.zones.find(z => z.name === "inner");
+              const newChartPoint = {
+                time: new Date().toLocaleTimeString().split(':').slice(0, 2).join(':'),
+                motorbikes: innerZone?.motorbikes || 0,
+                cars: innerZone?.cars || 0,
+              };
+              
+              nextCameras[existingCamIndex] = {
+                ...existingCam,
+                zones: newCamData.zones,
+                chartData: [...existingCam.chartData, newChartPoint],
+                lastUpdated: newCamData.lastUpdated,
+              };
+            } else {
+              // Thêm camera mới
+              const innerZone = newCamData.zones.find(z => z.name === "inner");
+              const initialChartPoint = {
+                time: new Date().toLocaleTimeString().split(':').slice(0, 2).join(':'),
+                motorbikes: innerZone?.motorbikes || 0,
+                cars: innerZone?.cars || 0,
+              };
+              nextCameras.push({ ...newCamData, chartData: [initialChartPoint] });
+            }
+          });
+          
+          return nextCameras;
+        });
+
+      } catch (error) {
+        console.error("Failed to fetch camera data:", error);
+      }
+    };
+
+    // Gọi fetchData ban đầu khi component mount
+    fetchData();
+
+    // Thiết lập interval để fetch data mỗi 5 phút (300,000ms)
+    // Lưu ý: Đã sửa lại thành 60 giây trong code của bạn, tôi sẽ giữ nguyên theo đó.
+    const intervalId = setInterval(fetchData, 60000); 
+
+    // Dọn dẹp interval khi component unmount
+    return () => clearInterval(intervalId);
+  }, []);
 
   return (
     <Container maxWidth="lg" sx={{ pt: 2, pb: 4}}>
-      {/* <Typography variant="h4" gutterBottom>
-        Overview - Camera Statistics
-      </Typography> */}
       <Grid container spacing={4}>
         {cameras.map((cam, idx) => (
           <Grid item xs={12} md={6} key={idx}>
@@ -56,4 +103,3 @@ export default function OverviewPage() {
     </Container>
   );
 }
-

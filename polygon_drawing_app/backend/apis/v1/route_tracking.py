@@ -15,6 +15,12 @@ from datetime import datetime, timedelta
 router = APIRouter()
 update_event = asyncio.Event()
 
+# Stores data specifically for the Overview page, updated every 1 minute.
+overview_data_store: Dict[str, Dict[str, Dict[str, int]]] = {}
+
+# Store to track the last update time for the Overview page
+last_overview_update: Dict[str, datetime] = {}
+
 # Stores cumulative counts that reset only once per hour
 vehicle_data_cumulative_store: Dict[str, Dict[str, Dict[str, int]]] = {}
 
@@ -64,14 +70,13 @@ class TrackingController:
     def __init__(self):
         self.router = APIRouter(redirect_slashes=False)
         
-        # New endpoints for video processing
+        self.router.add_api_route("/overview-data/{camera_id}", self.get_overview_data, methods=["GET"])
         self.router.add_api_route("/stream-data/{video_name}", self.stream_video_data, methods=["GET"])
         self.router.add_api_route("/data/{video_name}", self.get_video_data, methods=["GET"])
-        # self.router.add_api_route("/live-stream-mjpeg/{video_name}", self.live_stream_mjpeg, methods=["GET"])
-        # self.router.add_api_route("/video-file/{video_name}", self.get_video_file, methods=["GET"])
         self.router.add_api_route("/stream-rtsp/{serial_number}", self.stream_rtsp_camera, methods=["GET"])
         self.router.add_api_route("/latest-frame/{serial_number}", self.get_latest_frame, methods=["GET"])
-        self.router.add_api_route("/vehicle-data-batch", self.post_vehicle_data_batch, methods=["POST"])
+        
+        self.router.add_api_route("/vehicle-data-batch", TrackingController.post_vehicle_data_batch, methods=["POST"])
         self.router.add_api_route("/vehicle-data-stream/{camera_id}", self.stream_vehicle_data, methods=['GET'])
 
     @staticmethod
@@ -92,7 +97,6 @@ class TrackingController:
                             if latest_frame.get('frame', 0) > last_frame:
                                 last_frame = latest_frame.get('frame', 0)
                                 
-                                # Send frame update with zone data
                                 frame_data = {
                                     "type": "frame_update",
                                     "frame_number": last_frame,
@@ -100,16 +104,23 @@ class TrackingController:
                                 }
                                 yield f"data: {json.dumps(frame_data)}\n\n"
                     
-                    await asyncio.sleep(1)  # Update every second
+                    await asyncio.sleep(1)
                     
                 except Exception as e:
                     print(f"Error in stream_video_data: {e}")
                     await asyncio.sleep(1)
             
-            # Send completion message
             yield f"data: {json.dumps({'type': 'processing_complete'})}\n\n"
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+    @staticmethod
+    def get_overview_data(camera_id: str):
+        """
+        Returns a snapshot of vehicle data for the Overview page, updated every 1 minute.
+        """
+        data = overview_data_store.get(camera_id, {})
+        return {"camera_id": camera_id, "data": data}
 
     @staticmethod
     def get_video_data(video_name: str):
@@ -119,7 +130,6 @@ class TrackingController:
             if os.path.exists(data_file):
                 with open(data_file, "r") as f:
                     data = json.load(f)
-                # Return the latest frame data
                 return data[-1] if data else {"evaluate": []}
             else:
                 return {"evaluate": []}
@@ -138,12 +148,11 @@ class TrackingController:
                     continue
 
                 frame_bgr = frame.copy()
-                # Hardcode resize to HD (1280x720)
                 target_width, target_height = 1280, 720
                 resized_frame = cv2.resize(frame_bgr, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
 
                 encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
-                success, buffer_jpeg = cv2.imencode('.jpg', resized_frame, encode_param) # defensive copy
+                success, buffer_jpeg = cv2.imencode('.jpg', resized_frame, encode_param)
 
                 if not success:
                     continue 
@@ -174,7 +183,6 @@ class TrackingController:
         target_width, target_height = 1280, 720
         resized_frame = cv2.resize(frame_copy, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
 
-        # Encode the resized frame back to JPEG bytes
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
         success, buffer_jpeg = cv2.imencode('.jpg', resized_frame, encode_param)
 
@@ -188,60 +196,41 @@ class TrackingController:
     @staticmethod
     async def post_vehicle_data_batch(data: VehicleBatchData = Body(...)):
         """
-        Receive vehicle count batch updates from processing system,
-        assign counts from payload directly to internal store,
-        propagate to frontend store and notify frontend subscribers.
+        Receives vehicle count updates and handles updates for both continuous and batched clients.
         """
-        print(data)
         camera_id = data.camera_id
         zones = data.zones
 
-        if camera_id not in vehicle_data_cumulative_store:
-            vehicle_data_cumulative_store[camera_id] = {}
+        # Logic to update the continuous-streaming store (Dữ liệu này sẽ được cộng dồn liên tục)
         if camera_id not in vehicle_data_store:
             vehicle_data_store[camera_id] = {}
-
-        # for zone_data in zones:
-        #     zone = zone_data.zone
-
-        #     # Directly assign counts from the incoming payload
-        #     vehicle_data_cumulative_store[camera_id][zone] = {
-        #         "number_of_motorbike": zone_data.number_of_motorbike,
-        #         "number_of_car": zone_data.number_of_car,
-        #     }
-
-        # Đoạn code đã được sửa
         for zone_data in zones:
             zone = zone_data.zone
-            
-            # Khởi tạo zone nếu chưa tồn tại
-            if zone not in vehicle_data_cumulative_store[camera_id]:
-                vehicle_data_cumulative_store[camera_id][zone] = {
-                    "number_of_motorbike": 0,
-                    "number_of_car": 0,
-                }
+            if zone not in vehicle_data_store[camera_id]:
+                vehicle_data_store[camera_id][zone] = {"number_of_motorbike": 0, "number_of_car": 0}
 
-            # CỘNG DỒN giá trị mới vào giá trị cũ
-            if not data.reset_state:
-                vehicle_data_cumulative_store[camera_id][zone]["number_of_motorbike"] += zone_data.number_of_motorbike
-                vehicle_data_cumulative_store[camera_id][zone]["number_of_car"] += zone_data.number_of_car
-            else:
-                # Ghi đè giá trị nếu reset_state là True
-                vehicle_data_cumulative_store[camera_id][zone]["number_of_motorbike"] = zone_data.number_of_motorbike
-                vehicle_data_cumulative_store[camera_id][zone]["number_of_car"] = zone_data.number_of_car
+            vehicle_data_store[camera_id][zone]["number_of_motorbike"] += zone_data.number_of_motorbike
+            vehicle_data_store[camera_id][zone]["number_of_car"] += zone_data.number_of_car
 
-        # Update frontend-facing store by copying cumulative data (fresh snapshot)
-        copy_store = {
-            zone: counts.copy()
-            for zone, counts in vehicle_data_cumulative_store[camera_id].items()
-        }
-        vehicle_data_store[camera_id] = copy_store
-
-        # Notify frontend clients new data is ready
+        # Gửi thông báo đến các client real-time
         queue = get_update_queue(camera_id)
         await queue.put(camera_id)
 
-        return {"message": "Batch vehicle data received", "data": vehicle_data_store[camera_id]}
+        # Logic cho trang Overview (chỉ cập nhật mỗi 1 phút)
+        current_time = datetime.now()
+        # Nếu đây là lần đầu tiên nhận dữ liệu hoặc đã đủ 1 phút
+        if camera_id not in last_overview_update or (current_time - last_overview_update[camera_id]).total_seconds() >= 60:
+            print(f"[INFO] Updating Overview page data for camera {camera_id} at {current_time}")
+
+            # Cập nhật overview_data_store bằng cách sao chép dữ liệu từ vehicle_data_store
+            # Dữ liệu ở đây sẽ là tổng số xe trong suốt quá trình chạy backend
+            overview_data_store[camera_id] = vehicle_data_store[camera_id].copy()
+            last_overview_update[camera_id] = current_time
+
+            # **LƯU Ý QUAN TRỌNG:** KHÔNG reset vehicle_data_store ở đây
+            # để đảm bảo nó luôn cộng dồn liên tục.
+
+        return {"message": "Vehicle data received and distributed."}
     
     @staticmethod
     async def stream_vehicle_data(camera_id: str, request: Request):
@@ -258,10 +247,8 @@ class TrackingController:
 
             while True:
                 try:
-                    # Wait for notification or timeout for connection keep-alive
                     await asyncio.wait_for(queue.get(), timeout=0.01)
                 except asyncio.TimeoutError:
-                    # Timeout triggers empty send (optional: heartbeat)
                     pass
 
                 if await request.is_disconnected():
