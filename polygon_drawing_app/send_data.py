@@ -15,8 +15,8 @@ def generate_mock_data(camera_id):
     for zone in zones:
         data = {
             "zone": zone,
-            "number_of_motorbike": random.randint(1, 5),
-            "number_of_car": random.randint(0, 3),
+            "number_of_motorbike": random.randint(5,15),
+            "number_of_car": random.randint(0,5),
         }
         zones_data.append(data)
     
