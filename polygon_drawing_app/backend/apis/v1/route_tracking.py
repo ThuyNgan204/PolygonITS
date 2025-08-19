@@ -74,7 +74,7 @@ class TrackingController:
         self.router.add_api_route("/vehicle-data-batch", TrackingController.post_vehicle_data_batch, methods=["POST"])
         self.router.add_api_route("/vehicle-data-stream/{camera_id}", self.stream_vehicle_data, methods=['GET'])
         self.router.add_api_route("/chart-history/{camera_id}", self.get_chart_history, methods=["GET"])
-        self.router.add_api_route("/update-and-get-overview", self.update_and_get_overview, methods=["POST"]) # Endpoint mới
+        self.router.add_api_route("/update-and-get-overview", self.update_and_get_overview, methods=["POST"]) # New Endpoint
 
     @staticmethod
     async def stream_video_data(video_name: str):

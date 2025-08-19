@@ -2,14 +2,13 @@ import requests
 import time
 import random
 
-# Đổi URL này nếu server của bạn chạy ở địa chỉ/cổng khác
 API_URL = "http://localhost:5101/api/v1/tracking/vehicle-data-batch"
-CAMERA_ID = ["SN003", "SN004"] # Thay bằng ID camera bạn đang dùng để test
+CAMERA_ID = ["SN003", "SN004"]
 
 
 def generate_mock_data(camera_id):
     """Tạo dữ liệu ngẫu nhiên để mô phỏng dữ liệu từ hệ thống AI."""
-    zones = ["inner", "outer"]  # Phải trùng với tên zone trong code frontend của bạn
+    zones = ["inner", "outer"]
 
     zones_data = []
     for zone in zones:
@@ -23,7 +22,7 @@ def generate_mock_data(camera_id):
     payload = {
         "camera_id": camera_id,
         "zones": zones_data,
-        "reset_state": False  # Thêm trường này vào
+        "reset_state": False
     }
     return payload
 
@@ -34,9 +33,8 @@ def send_data_to_api():
             data_to_send = generate_mock_data(camera_id)
             try:
                 response = requests.post(API_URL, json=data_to_send)
-                response.raise_for_status()  # Ném lỗi nếu status code không phải 2xx
+                response.raise_for_status()
                 print(f"[{time.strftime('%H:%M:%S')}] Đã gửi dữ liệu thành công cho camera {CAMERA_ID}. Trạng thái: {response.status_code}")
-                # print("Dữ liệu phản hồi:", response.json())
             except requests.exceptions.RequestException as e:
                 print(f"[{time.strftime('%H:%M:%S')}] Lỗi khi gửi dữ liệu: {e}")
         
