@@ -4,31 +4,27 @@ import asyncio
 import cv2
 from typing import Dict
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse, Response
+from fastapi import APIRouter, HTTPException, Request, Body
+from fastapi.responses import StreamingResponse, Response
 from services.rtsp_fetcher import rtsp_fetcher
 from schemas.vehicle_data import VehicleBatchData
-from fastapi import Body
 from config import RTMP_STREAMS
 from datetime import datetime, timedelta
 
 router = APIRouter()
 update_event = asyncio.Event()
 
-# new global variable
-chart_history_store: Dict[str, list] = {}
-
-# Stores data specifically for the Overview page, updated every 1 minute.
-overview_data_store: Dict[str, Dict[str, Dict[str, int]]] = {}
-
-# Store to track the last update time for the Overview page
-last_overview_update: Dict[str, datetime] = {}
-
 # Stores cumulative counts that reset only once per hour
 vehicle_data_cumulative_store: Dict[str, Dict[str, Dict[str, int]]] = {}
 
 # Stores frontend-facing data to stream to clients (copied from cumulative store)
 vehicle_data_store: Dict[str, Dict[str, Dict[str, int]]] = {}
+
+# Stores data for the Overview page, a snapshot of the cumulative store.
+overview_data_store: Dict[str, Dict[str, Dict[str, int]]] = {}
+
+# Stores historical data for the chart, with cumulative counts
+chart_history_store: Dict[str, list] = {}
 
 # One asyncio.Queue per camera for efficient notification of updates to streaming clients
 update_queues: Dict[str, asyncio.Queue] = {}
@@ -52,15 +48,12 @@ async def reset_counts_periodically():
 
         print(f"[INFO] Resetting cumulative vehicle counts at {datetime.now()}")
 
-        # Reset the internal cumulative store only, NOT the frontend store yet
         for camera_id in vehicle_data_cumulative_store.keys():
             for zone in vehicle_data_cumulative_store[camera_id].keys():
                 vehicle_data_cumulative_store[camera_id][zone] = {
                     "number_of_motorbike": 0,
                     "number_of_car": 0,
                 }
-
-            # Notify frontend clients that a reset event occurred
             queue = get_update_queue(camera_id)
             await queue.put(camera_id)
 
@@ -72,7 +65,6 @@ class TrackingController:
     
     def __init__(self):
         self.router = APIRouter(redirect_slashes=False)
-        
         self.router.add_api_route("/overview-data/{camera_id}", self.get_overview_data, methods=["GET"])
         self.router.add_api_route("/stream-data/{video_name}", self.stream_video_data, methods=["GET"])
         self.router.add_api_route("/data/{video_name}", self.get_video_data, methods=["GET"])
@@ -81,8 +73,8 @@ class TrackingController:
         
         self.router.add_api_route("/vehicle-data-batch", TrackingController.post_vehicle_data_batch, methods=["POST"])
         self.router.add_api_route("/vehicle-data-stream/{camera_id}", self.stream_vehicle_data, methods=['GET'])
-        # New endpoint for chart history
         self.router.add_api_route("/chart-history/{camera_id}", self.get_chart_history, methods=["GET"])
+        self.router.add_api_route("/update-and-get-overview", self.update_and_get_overview, methods=["POST"]) # Endpoint mới
 
     @staticmethod
     async def stream_video_data(video_name: str):
@@ -108,9 +100,9 @@ class TrackingController:
                                     "zone_data": latest_frame.get('evaluate', [])
                                 }
                                 yield f"data: {json.dumps(frame_data)}\n\n"
-                    
-                    await asyncio.sleep(1)
-                    
+                        
+                        await asyncio.sleep(1)
+                        
                 except Exception as e:
                     print(f"Error in stream_video_data: {e}")
                     await asyncio.sleep(1)
@@ -122,7 +114,7 @@ class TrackingController:
     @staticmethod
     def get_overview_data(camera_id: str):
         """
-        Returns a snapshot of vehicle data for the Overview page, updated every 1 minute.
+        Returns a snapshot of vehicle data for the Overview page.
         """
         data = overview_data_store.get(camera_id, {})
         return {"camera_id": camera_id, "data": data}
@@ -200,57 +192,68 @@ class TrackingController:
     @staticmethod
     async def post_vehicle_data_batch(data: VehicleBatchData = Body(...)):
         """
-        Receives vehicle count updates and handles updates for both continuous and batched clients.
+        Receives real-time vehicle count updates and updates the main store.
         """
         camera_id = data.camera_id
         zones = data.zones
 
-        # Logic to update the continuous-streaming store (Dữ liệu này sẽ được cộng dồn liên tục)
         if camera_id not in vehicle_data_store:
             vehicle_data_store[camera_id] = {}
         for zone_data in zones:
             zone = zone_data.zone
             if zone not in vehicle_data_store[camera_id]:
                 vehicle_data_store[camera_id][zone] = {"number_of_motorbike": 0, "number_of_car": 0}
-
             vehicle_data_store[camera_id][zone]["number_of_motorbike"] += zone_data.number_of_motorbike
             vehicle_data_store[camera_id][zone]["number_of_car"] += zone_data.number_of_car
 
-        # Gửi thông báo đến các client real-time
         queue = get_update_queue(camera_id)
         await queue.put(camera_id)
+        
+        return {"message": "Vehicle data received and distributed."}
+    
+    @staticmethod
+    async def update_and_get_overview(data: dict = Body(...)):
+        """
+        Frontend calls this to update the overview data and get chart history.
+        This function handles the snapshot and history logic.
+        """
+        camera_id = data.get("cameraId")
+        if not camera_id:
+            raise HTTPException(status_code=400, detail="Camera ID is required.")
 
-        # Logic cho trang Overview (chỉ cập nhật mỗi 1 phút)
-        current_time = datetime.now()
-        # Nếu đây là lần đầu tiên nhận dữ liệu hoặc đã đủ 1 phút
-        if camera_id not in last_overview_update or (current_time - last_overview_update[camera_id]).total_seconds() >= 60:
-            print(f"[INFO] Updating Overview page data for camera {camera_id} at {current_time}")
+        # Update overview_data_store with new data
+        overview_data_store[camera_id] = vehicle_data_store.get(camera_id, {}).copy()
 
-            # Cập nhật overview_data_store bằng cách sao chép dữ liệu từ vehicle_data_store
-            # Dữ liệu ở đây sẽ là tổng số xe trong suốt quá trình chạy backend
-            overview_data_store[camera_id] = vehicle_data_store[camera_id].copy()
-            last_overview_update[camera_id] = current_time
+        total_motorbikes = sum(z["number_of_motorbike"] for z in overview_data_store[camera_id].values())
+        total_cars = sum(z["number_of_car"] for z in overview_data_store[camera_id].values())
+        
+        if camera_id not in chart_history_store:
+            chart_history_store[camera_id] = []
+        
+        # Add the test logic to see if the final data score should be crushed
+        last_point = chart_history_store[camera_id][-1] if chart_history_store[camera_id] else None
+        current_time_formatted = datetime.now().strftime("%H:%M:%S")
 
-            # Calculate total vehicles for chart history
-            total_motorbikes = sum(z["number_of_motorbike"] for z in overview_data_store[camera_id].values())
-            total_cars = sum(z["number_of_car"] for z in overview_data_store[camera_id].values())
-            
-            # Store the data point in the in-memory chart history
-            if camera_id not in chart_history_store:
-                chart_history_store[camera_id] = []
-            
-            # Add new data point to history, with a maximum size to prevent memory issues
+        if last_point and last_point["time"] == current_time_formatted:
+            # If in the same time, update valuable in the final point
+            last_point["motorbikes"] = total_motorbikes
+            last_point["cars"] = total_cars
+        else:
+            # Else add a new point
             if len(chart_history_store[camera_id]) >= 100:
                 chart_history_store[camera_id].pop(0)
             
             chart_history_store[camera_id].append({
-                "time": current_time.strftime("%H:%M"),
+                "time": current_time_formatted,
                 "motorbikes": total_motorbikes,
                 "cars": total_cars,
             })
-            
-        return {"message": "Vehicle data received and distributed."}
-    
+        
+        return {
+            "overviewData": overview_data_store.get(camera_id, {}),
+            "chartData": chart_history_store.get(camera_id, [])
+        }
+        
     @staticmethod
     async def stream_vehicle_data(camera_id: str, request: Request):
         """
@@ -260,7 +263,6 @@ class TrackingController:
         queue = get_update_queue(camera_id)
 
         async def event_generator():
-            # Immediate initial send
             data = vehicle_data_store.get(camera_id, {})
             yield f"data: {json.dumps(data)}\n\n"
 
