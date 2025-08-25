@@ -223,6 +223,7 @@ export function PolygonDetailsForm() {
     // TRẠNG THÁI ZONE KHI BẮT ĐẦU EDIT (Dùng cho Hủy/Cancel)
     const [originalEditState, setOriginalEditState] = useState(null); 
     const [selectedPolygonIndex, setSelectedPolygonIndex] = useState(null);
+    const [selectedIndices, setSelectedIndices] = useState(new Set()); 
 
     useEffect(() => {
         if (notification.open) {
@@ -435,6 +436,29 @@ export function PolygonDetailsForm() {
         setCurrentPoints([]);
     };
 
+    const handleBulkDelete = () => {
+        if (selectedIndices.size === 0) return;
+
+        // Lọc ra các zone KHÔNG nằm trong danh sách các index đã chọn
+        const updatedZones = zones.filter((_, index) => !selectedIndices.has(index));
+        
+        // Cập nhật màu sắc cho các zone còn lại (vì thứ tự đã thay đổi)
+        const finalZones = assignColors(updatedZones);
+        
+        setZones(finalZones);
+        setOriginalZones(finalZones); // Cập nhật bản sao lưu (originalZones)
+        setSelectedIndices(new Set()); // Reset danh sách chọn
+
+        // Thoát chế độ chỉnh sửa nếu zone đang edit bị xóa
+        if (editMode && selectedPolygonIndex !== null) {
+            if (selectedIndices.has(selectedPolygonIndex)) {
+                setEditMode(false);
+                setEditIndex(null);
+                setSelectedPolygonIndex(null);
+            }
+        }
+    };
+
     // SỬA LOGIC 3: Lưu trạng thái gốc khi bắt đầu chỉnh sửa
     const handleEdit = (index) => {
         setEditMode(true);
@@ -578,6 +602,26 @@ export function PolygonDetailsForm() {
             setSelectedPolygonIndex(index);
         }
     };
+    
+    const handleCheckboxChange = (index, isChecked) => {
+        const newSelectedIndices = new Set(selectedIndices);
+        if (isChecked) {
+            newSelectedIndices.add(index);
+        } else {
+            newSelectedIndices.delete(index);
+        }
+        setSelectedIndices(newSelectedIndices);
+    };
+
+
+    const handleSelectAllChange = (event) => {
+        if (event.target.checked) {
+            const allIndices = new Set(zones.map((_, index) => index));
+            setSelectedIndices(allIndices);
+        } else {
+            setSelectedIndices(new Set());
+        }
+    };
 
     return (
         <Card>
@@ -665,6 +709,14 @@ export function PolygonDetailsForm() {
                     <Table>
                         <TableHead>
                             <TableRow>
+                                <TableCell sx={{ width: '1%' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={zones.length > 0 && selectedIndices.size === zones.length}
+                                        onChange={handleSelectAllChange}
+                                        disabled={zones.length === 0 || editMode} // Vô hiệu hóa khi không có zone hoặc đang ở chế độ edit
+                                    />
+                                </TableCell>
                                 <TableCell sx={{ width: '20%' }}>
                                     <strong>Zone</strong>
                                 </TableCell>
@@ -686,6 +738,14 @@ export function PolygonDetailsForm() {
 
                                 return (
                                     <TableRow key={index}>
+                                         <TableCell sx={{ width: '1%' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedIndices.has(index)}
+                                                onChange={(e) => handleCheckboxChange(index, e.target.checked)}
+                                                disabled={editMode} // Vô hiệu hóa khi đang ở chế độ edit
+                                            />
+                                        </TableCell>
                                         <TableCell
                                             sx={{
                                                 backgroundColor: 'rgba(0, 0, 255, 0.05)',
@@ -804,20 +864,18 @@ export function PolygonDetailsForm() {
                     Xác nhận
                 </Button>
 
+                {selectedIndices.size > 0 && !editMode && (
+                <Button 
+                    variant='contained' 
+                    color='error' 
+                    onClick={handleBulkDelete}
+                >
+                    Xóa ({selectedIndices.size})
+                </Button>
+            )}
+
                 <Button variant='contained' color='success' onClick={handleUpdate} disabled={editMode}>
                     Lưu
-                </Button>
-
-                <Button
-                    style={{ display: 'none' }}
-                    variant='contained'
-                    color='error'
-                    onClick={() => {
-                        setZones([]);
-                        setCurrentPoints([]);
-                    }}
-                >
-                    Xóa
                 </Button>
             </CardActions>
 
