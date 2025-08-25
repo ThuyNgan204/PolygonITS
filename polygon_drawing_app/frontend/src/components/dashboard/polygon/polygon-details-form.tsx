@@ -14,6 +14,7 @@ import Select from '@mui/material/Select';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Unstable_Grid2';
 import { Image, Layer, Line, Stage, Circle } from 'react-konva';
+
 import {
     Table,
     TableBody,
@@ -26,11 +27,10 @@ import {
     TextField,
     Box,
     Snackbar,
-    Alert
+    Alert,
+    Checkbox
 } from '@mui/material';
 import { XSquare, PencilSimple, CheckCircle, Trash } from '@phosphor-icons/react';
-
-import Konva from 'konva';
 
 const zoneFillColor = 'rgba(0, 0, 255, 0.05)';
 const VALID_ZONE_NAMES = ['inner', 'outer'];
@@ -218,32 +218,20 @@ export function PolygonDetailsForm() {
     const [nameError, setNameError] = useState(false);
 
     const [editMode, setEditMode] = useState(false);
-    // Bản sao zones đã được LƯU HOẶC XÓA thành công (dùng cho việc hủy toàn bộ thay đổi sau cùng)
     const [originalZones, setOriginalZones] = useState([]); 
-    // TRẠNG THÁI ZONE KHI BẮT ĐẦU EDIT (Dùng cho Hủy/Cancel)
     const [originalEditState, setOriginalEditState] = useState(null); 
     const [selectedPolygonIndex, setSelectedPolygonIndex] = useState(null);
     const [selectedIndices, setSelectedIndices] = useState(new Set()); 
 
     useEffect(() => {
-        if (notification.open) {
-            const timer = setTimeout(() => {
-                setNotification({ ...notification, open: false });
-            }, 3000);
-            return () => clearTimeout(timer);
-        }
-    }, [notification]);
-
-    useEffect(() => {
         fetchData();
     }, []);
 
-    // SỬA LOGIC 3: Đảm bảo originalZones được cập nhật chính xác sau khi tải dữ liệu ban đầu
     useEffect(() => {
         if (!selectedCameraSN) {
             setImage(null);
             setZones([]);
-            setOriginalZones([]); // Đảm bảo reset bản gốc
+            setOriginalZones([]);
             return;
         }
 
@@ -279,7 +267,7 @@ export function PolygonDetailsForm() {
                         }
                     );
                     setZones(formattedZones);
-                    setOriginalZones(formattedZones); // Cập nhật bản gốc sau khi load
+                    setOriginalZones(formattedZones);
                 }
             } catch (error) {
                 console.error(error);
@@ -303,7 +291,6 @@ export function PolygonDetailsForm() {
             if (editMode && selectedPolygonIndex !== null) {
                 if ( e.key === 'Delete') {
                     const updatedZones = [...zones];
-                    // Chỉ xóa points của zone đang chọn
                     updatedZones[selectedPolygonIndex].points = []; 
                     setZones(updatedZones);
                 }
@@ -341,12 +328,10 @@ export function PolygonDetailsForm() {
             const roundedY = Math.round(point.y);
 
             if (editMode && selectedPolygonIndex !== null) {
-                // Thêm điểm vào polygon đang chỉnh sửa
                 const updatedZones = [...zones];
                 updatedZones[selectedPolygonIndex].points = [...updatedZones[selectedPolygonIndex].points, roundedX, roundedY];
                 setZones(updatedZones);
             } else if (!editMode) {
-                // Thêm điểm vào polygon mới
                 setCurrentPoints([...currentPoints, roundedX, roundedY]);
             }
         }
@@ -359,7 +344,7 @@ export function PolygonDetailsForm() {
     };
 
     const handleComplete = () => {
-        if (currentPoints.length > 2) {
+        if (currentPoints.length > 5) {
             const newZoneName = `zone${zones.length}`;
             const newZone = {
                 name: newZoneName,
@@ -371,7 +356,6 @@ export function PolygonDetailsForm() {
         }
     };
 
-    // SỬA LOGIC 3: Cập nhật originalZones sau khi lưu thành công
     const handleUpdate = async () => {
         const url = `http://localhost:5101/api/v1/camera/${selectedCameraSN}`;
         const pointsForAPI = zones.map((zone) => ({
@@ -394,8 +378,7 @@ export function PolygonDetailsForm() {
                 throw new Error(`Update failed: ${response.status}`);
             }
             await response.json();
-            setOriginalZones(zones); // Cập nhật bản sao lưu sau khi LƯU THÀNH CÔNG
-            fetchData();
+            setOriginalZones(zones);
             setNotification({
                 open: true,
                 message: 'Lưu thành công!',
@@ -422,13 +405,21 @@ export function PolygonDetailsForm() {
         setSelectedCameraSN(e.target.value);
     };
 
-    // SỬA LOGIC 3: Cập nhật originalZones sau khi xóa
     const handleDelete = (index) => {
         const updatedZones = zones.filter((_, i) => i !== index);
         const finalZones = assignColors(updatedZones);
         
         setZones(finalZones);
-        setOriginalZones(finalZones); // Cập nhật bản sao lưu (originalZones)
+        setOriginalZones(finalZones);
+
+        setSelectedIndices((prev) => {
+            const newSet = new Set<number>();
+            prev.forEach((i) => {
+            if (i < index) newSet.add(i);
+            else if (i > index) newSet.add(i - 1);
+            });
+            return newSet;
+        });
         
         setEditMode(false);
         setEditIndex(null);
@@ -439,17 +430,14 @@ export function PolygonDetailsForm() {
     const handleBulkDelete = () => {
         if (selectedIndices.size === 0) return;
 
-        // Lọc ra các zone KHÔNG nằm trong danh sách các index đã chọn
         const updatedZones = zones.filter((_, index) => !selectedIndices.has(index));
         
-        // Cập nhật màu sắc cho các zone còn lại (vì thứ tự đã thay đổi)
         const finalZones = assignColors(updatedZones);
         
         setZones(finalZones);
-        setOriginalZones(finalZones); // Cập nhật bản sao lưu (originalZones)
-        setSelectedIndices(new Set()); // Reset danh sách chọn
+        setOriginalZones(finalZones);
+        setSelectedIndices(new Set());
 
-        // Thoát chế độ chỉnh sửa nếu zone đang edit bị xóa
         if (editMode && selectedPolygonIndex !== null) {
             if (selectedIndices.has(selectedPolygonIndex)) {
                 setEditMode(false);
@@ -459,7 +447,6 @@ export function PolygonDetailsForm() {
         }
     };
 
-    // SỬA LOGIC 3: Lưu trạng thái gốc khi bắt đầu chỉnh sửa
     const handleEdit = (index) => {
         setEditMode(true);
         setEditIndex(index);
@@ -468,32 +455,25 @@ export function PolygonDetailsForm() {
         setOriginalName(zones[index].name);
         setNameError(false);
         
-        // LƯU TRẠNG THÁI GỐC CỦA ZONE NÀY KHI BẮT ĐẦU CHỈNH SỬA
         setOriginalEditState({
             name: zones[index].name,
-            points: [...zones[index].points] // Sao chép mảng points
+            points: [...zones[index].points]
         });
     };
 
-    // SỬA LOGIC 1 & 2: Ràng buộc tên và Lưu tạm thời (khi bấm Check/Save UI)
     const handleSaveEdit = () => {
         const newName = tempName.trim().toLowerCase();
 
-        // 1. KIỂM TRA RÀNG BUỘC TÊN
-        // Cho phép tên cũ ('zoneX') được giữ nguyên nếu người dùng không đổi
         if (!VALID_ZONE_NAMES.includes(newName)) {
             if (newName === originalName && originalName.startsWith('zone')) {
-                // OK: Giữ nguyên tên 'zoneX', tiếp tục
             } else {
-                 setNotification({ open: true, message: 'Tên zone khi chỉnh sửa chỉ được là "inner" hoặc "outer".', type: 'error' });
+                 setNotification({ open: true, message: 'Tên zone phải là "inner" hoặc "outer".', type: 'error' });
                  setNameError(true);
                  return;
             }
         }
         
-        // 2. BỎ QUA KIỂM TRA TRÙNG LẶP NẾU TÊN KHÔNG ĐỔI
         if (newName === originalName) {
-            // Thoát chế độ chỉnh sửa, lưu tạm thời
             setEditMode(false);
             setEditIndex(null);
             setSelectedPolygonIndex(null);
@@ -502,7 +482,6 @@ export function PolygonDetailsForm() {
             return;
         }
 
-        // 3. KIỂM TRA TRÙNG LẶP (CHỈ KHI TÊN THAY ĐỔI)
         const isNameDuplicate = zones.some((zone, i) =>
             i !== editIndex && zone.name.toLowerCase() === newName
         );
@@ -513,12 +492,10 @@ export function PolygonDetailsForm() {
             return;
         }
 
-        // 4. LƯU TẠM THỜI
         const updatedZones = [...zones];
         updatedZones[editIndex] = { ...updatedZones[editIndex], name: newName };
-        setZones(updatedZones); // Cập nhật tên zone
+        setZones(updatedZones);
 
-        // Thoát chế độ chỉnh sửa
         setEditMode(false);
         setEditIndex(null);
         setSelectedPolygonIndex(null);
@@ -526,34 +503,29 @@ export function PolygonDetailsForm() {
         setNameError(false);
     };
 
-    // SỬA LOGIC 3: Hủy bỏ các thay đổi (Chỉ hoàn tác cho zone đang chỉnh sửa)
     const handleCancelEdit = () => {
         if (originalEditState && selectedPolygonIndex !== null) {
             const updatedZones = [...zones];
             
-            // HOÀN TÁC: Khôi phục tên và points của zone đang chỉnh sửa về trạng thái gốc (originalEditState)
             updatedZones[selectedPolygonIndex] = { 
                 ...updatedZones[selectedPolygonIndex],
                 name: originalEditState.name,
                 points: originalEditState.points 
             };
             
-            setZones(updatedZones); // Cập nhật mảng zones
+            setZones(updatedZones);
         } else {
-            // Trường hợp dự phòng/lỗi: nếu originalEditState bị lỗi, quay về bản lưu cuối cùng (originalZones)
             setZones(originalZones);
         }
 
-        // Thoát chế độ chỉnh sửa
         setEditMode(false);
         setEditIndex(null);
         setSelectedPolygonIndex(null);
         setTempName('');
-        setOriginalEditState(null); // Xóa state backup
+        setOriginalEditState(null);
     };
 
     const handleNameClick = (index) => {
-        // Chỉ cho phép chỉnh sửa tên khi đang ở chế độ chỉnh sửa toàn cục (EditMode)
         if (selectedPolygonIndex !== index || !editMode) return;
         
         setEditIndex(index);
@@ -565,23 +537,15 @@ export function PolygonDetailsForm() {
 
     const handleNameChange = (e) => {
         setTempName(e.target.value);
-        setNameError(false); // Xóa lỗi khi người dùng bắt đầu gõ
+        setNameError(false);
     };
 
-    // SỬA LOGIC 2: Xóa logic kiểm tra tên và lưu tạm thời
-    // Việc kiểm tra và lưu tạm thời đã chuyển sang handleNameKeyDown (Enter) và handleSaveEdit (Check)
     const handleNameBlur = () => {
-        // Thoát chế độ chỉnh sửa tên inline, không làm gì cả
         setEditIndex(null);
-        // Lưu ý: Nếu muốn áp dụng thay đổi ngay khi blur (rời khỏi ô text), 
-        // bạn có thể gọi handleSaveEdit ở đây, nhưng logic hiện tại 
-        // là chỉ lưu khi bấm Enter hoặc CheckCircle.
     };
 
-    // SỬA LOGIC 2: Lưu tạm thời tên khi bấm ENTER
     const handleNameKeyDown = (e) => {
         if (e.key === 'Enter' && editIndex !== null) {
-            // Gọi hàm lưu tạm thời/kiểm tra
             handleSaveEdit();
         }
     };
@@ -593,7 +557,7 @@ export function PolygonDetailsForm() {
             newPoints[pointIndex + 1] = Math.round(e.target.y());
             const updatedZones = [...zones];
             updatedZones[selectedPolygonIndex].points = newPoints;
-            setZones(updatedZones); // Cập nhật tạm thời points
+            setZones(updatedZones);
         }
     };
     
@@ -612,7 +576,6 @@ export function PolygonDetailsForm() {
         }
         setSelectedIndices(newSelectedIndices);
     };
-
 
     const handleSelectAllChange = (event) => {
         if (event.target.checked) {
@@ -714,7 +677,7 @@ export function PolygonDetailsForm() {
                                         type="checkbox"
                                         checked={zones.length > 0 && selectedIndices.size === zones.length}
                                         onChange={handleSelectAllChange}
-                                        disabled={zones.length === 0 || editMode} // Vô hiệu hóa khi không có zone hoặc đang ở chế độ edit
+                                        disabled={zones.length === 0 || editMode}
                                     />
                                 </TableCell>
                                 <TableCell sx={{ width: '20%' }}>
@@ -743,7 +706,7 @@ export function PolygonDetailsForm() {
                                                 type="checkbox"
                                                 checked={selectedIndices.has(index)}
                                                 onChange={(e) => handleCheckboxChange(index, e.target.checked)}
-                                                disabled={editMode} // Vô hiệu hóa khi đang ở chế độ edit
+                                                disabled={editMode}
                                             />
                                         </TableCell>
                                         <TableCell
